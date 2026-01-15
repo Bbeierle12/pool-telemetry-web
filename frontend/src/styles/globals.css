@@ -1,0 +1,307 @@
+/* Pool Telemetry Web - Dark Theme (matching PyQt6 design) */
+
+:root {
+  --bg-primary: #12161c;
+  --bg-secondary: #0f1318;
+  --bg-tertiary: #1a1f26;
+  --border-color: #2b3440;
+  --text-primary: #e6e6e6;
+  --text-secondary: #9aa0a6;
+  --text-muted: #6b7280;
+  --accent-blue: #1f6feb;
+  --accent-blue-hover: #2b7cff;
+  --accent-green: #22c55e;
+  --accent-red: #ef4444;
+  --accent-yellow: #eab308;
+  --disabled-bg: #3a3f46;
+  --disabled-text: #6b7280;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* Group Box - matches PyQt6 QGroupBox */
+.group-box {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  background-color: var(--bg-secondary);
+}
+
+.group-box-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Buttons - matches PyQt6 QPushButton */
+button, .btn {
+  background-color: var(--accent-blue);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+button:hover, .btn:hover {
+  background-color: var(--accent-blue-hover);
+}
+
+button:disabled, .btn:disabled {
+  background-color: var(--disabled-bg);
+  color: var(--disabled-text);
+  cursor: not-allowed;
+}
+
+button.btn-secondary {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+button.btn-secondary:hover {
+  background-color: var(--border-color);
+}
+
+button.btn-danger {
+  background-color: var(--accent-red);
+}
+
+button.btn-danger:hover {
+  background-color: #dc2626;
+}
+
+button.btn-success {
+  background-color: var(--accent-green);
+}
+
+/* Inputs - matches PyQt6 QLineEdit */
+input, textarea, select {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 6px 10px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  width: 100%;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  border-color: var(--accent-blue);
+}
+
+input::placeholder {
+  color: var(--text-muted);
+}
+
+/* Tables - matches PyQt6 QTableWidget */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background-color: var(--bg-secondary);
+}
+
+th, td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+th {
+  background-color: var(--bg-tertiary);
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+tr:hover {
+  background-color: var(--bg-tertiary);
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3b4654;
+}
+
+/* Progress bar */
+.progress-bar {
+  height: 16px;
+  background-color: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background-color: var(--accent-blue);
+  transition: width 0.3s ease;
+}
+
+/* Dialog/Modal overlay */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 20px;
+  min-width: 400px;
+  max-width: 90vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  font-size: 1.25rem;
+}
+
+.modal-close:hover {
+  color: var(--text-primary);
+  background: none;
+}
+
+/* Status indicators */
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+
+.status-dot.connected {
+  background-color: var(--accent-green);
+}
+
+.status-dot.disconnected {
+  background-color: var(--accent-red);
+}
+
+.status-dot.pending {
+  background-color: var(--accent-yellow);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
+
+.tab {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.875rem;
+}
+
+.tab:hover {
+  color: var(--text-primary);
+  background: none;
+}
+
+.tab.active {
+  color: var(--accent-blue);
+  border-bottom-color: var(--accent-blue);
+  background: none;
+}
+
+/* Form groups */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-label {
+  display: block;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.form-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Utility classes */
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.justify-center { justify-content: center; }
+.gap-2 { gap: 0.5rem; }
+.gap-4 { gap: 1rem; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.text-center { text-align: center; }
+.text-sm { font-size: 0.875rem; }
+.text-xs { font-size: 0.75rem; }
+.text-muted { color: var(--text-muted); }
+.font-mono { font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; }
