@@ -1,19 +1,18 @@
 """Video upload and streaming routes."""
-from __future__ import annotations
-
 import asyncio
 import uuid
 from pathlib import Path
 from typing import Optional
 
 import aiofiles
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter, RATE_LIMIT_UPLOAD
 from app.models.database import Session
 from app.models.schemas import GoProConfig, VideoUploadResponse, StreamInfo
 
@@ -52,11 +51,13 @@ async def process_video_to_hls(video_path: Path, session_id: str):
 
 
 @router.post("/upload", response_model=VideoUploadResponse)
+@limiter.limit(RATE_LIMIT_UPLOAD)
 async def upload_video(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     session_id: Optional[str] = None,
-    background_tasks: BackgroundTasks = None,
-    db: AsyncSession = Depends(get_db)
 ):
     """Upload a video file for processing."""
     # Validate file type

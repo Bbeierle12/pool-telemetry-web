@@ -1,18 +1,18 @@
 """Authentication routes - PIN-based family profiles."""
-from __future__ import annotations
-
 import uuid
 import hashlib
 from datetime import datetime, timedelta
-from typing import List
+from typing import List, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import bcrypt
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from jose import jwt
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter, RATE_LIMIT_AUTH, RATE_LIMIT_DEFAULT
 from app.models.database import Profile
 from app.models.schemas import (
     ProfileCreate, ProfileResponse, LoginRequest, TokenResponse
@@ -25,14 +25,42 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 
 
 def hash_pin(pin: str) -> str:
-    """Hash a PIN using SHA256 with salt (simple for family app)."""
+    """Hash a PIN using bcrypt with random salt."""
+    pin_bytes = pin.encode('utf-8')
+    salt = bcrypt.gensalt(rounds=12)
+    return bcrypt.hashpw(pin_bytes, salt).decode('utf-8')
+
+
+def _legacy_hash_pin(pin: str) -> str:
+    """Legacy SHA256 hash for migration purposes only."""
     salted = f"pool_telemetry_{pin}_salt"
     return hashlib.sha256(salted.encode()).hexdigest()
 
 
-def verify_pin(pin: str, pin_hash: str) -> bool:
-    """Verify a PIN against its hash."""
-    return hash_pin(pin) == pin_hash
+def _is_bcrypt_hash(pin_hash: str) -> bool:
+    """Check if hash is bcrypt format (starts with $2b$)."""
+    return pin_hash.startswith(("$2b$", "$2a$", "$2y$"))
+
+
+def verify_pin(pin: str, pin_hash: str) -> Tuple[bool, bool]:
+    """
+    Verify a PIN against its hash.
+
+    Returns:
+        Tuple of (is_valid, needs_upgrade)
+        - is_valid: True if PIN matches
+        - needs_upgrade: True if hash should be upgraded to bcrypt
+    """
+    if _is_bcrypt_hash(pin_hash):
+        try:
+            is_valid = bcrypt.checkpw(pin.encode('utf-8'), pin_hash.encode('utf-8'))
+            return is_valid, False
+        except Exception:
+            return False, False
+    else:
+        # Legacy SHA256 hash - verify and flag for upgrade
+        is_valid = _legacy_hash_pin(pin) == pin_hash
+        return is_valid, is_valid  # Only upgrade if valid
 
 
 def create_access_token(profile_id: str) -> str:
@@ -76,7 +104,9 @@ async def create_profile(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit(RATE_LIMIT_AUTH)
 async def login(
+    request: Request,
     login_data: LoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
@@ -92,11 +122,19 @@ async def login(
             detail="Profile not found"
         )
 
-    if not verify_pin(login_data.pin, profile.pin_hash):
+    is_valid, needs_upgrade = verify_pin(login_data.pin, profile.pin_hash)
+
+    if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect PIN"
         )
+
+    # Upgrade legacy SHA256 hash to bcrypt on successful login
+    if needs_upgrade:
+        profile.pin_hash = hash_pin(login_data.pin)
+        await db.commit()
+        await db.refresh(profile)
 
     access_token = create_access_token(profile.id)
 

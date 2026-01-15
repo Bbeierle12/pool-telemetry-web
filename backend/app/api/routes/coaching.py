@@ -1,21 +1,22 @@
 """Coaching routes - AI-powered feedback using Claude."""
-from __future__ import annotations
-
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import get_db
+from app.core.rate_limit import limiter, RATE_LIMIT_AI
 from app.models.database import Session, Shot
 
 router = APIRouter()
 
 
 @router.post("/{session_id}/analyze")
+@limiter.limit(RATE_LIMIT_AI)
 async def analyze_session(
+    request: Request,
     session_id: str,
     db: AsyncSession = Depends(get_db)
 ):
@@ -66,7 +67,9 @@ async def analyze_session(
 
 
 @router.post("/{session_id}/shots/{shot_number}/feedback")
+@limiter.limit(RATE_LIMIT_AI)
 async def get_shot_feedback(
+    request: Request,
     session_id: str,
     shot_number: int,
     db: AsyncSession = Depends(get_db)
