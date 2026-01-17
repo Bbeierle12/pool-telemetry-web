@@ -1,29 +1,16 @@
-/* eslint-disable @typescript-eslint/no-var-requires, @typescript-eslint/no-explicit-any */
-// Debug: Log what we get from require('electron')
-const electronModule = require('electron');
-console.log('Electron module type:', typeof electronModule);
-console.log('Electron module:', electronModule);
-console.log('Electron module keys:', Object.keys(electronModule || {}));
-console.log('process.versions.electron:', (process as any).versions?.electron);
-console.log('process.type:', (process as any).type);
-
-// If we got a string (path from npm package), the built-in module isn't working
-if (typeof electronModule === 'string') {
-  console.error('ERROR: Got npm electron path instead of module:', electronModule);
-  console.error('This indicates Electron built-in module resolution is not working');
-  process.exit(1);
-}
-
-if (!electronModule.app) {
-  console.error('ERROR: electron.app is undefined');
-  console.error('Module contents:', JSON.stringify(electronModule, null, 2));
-  process.exit(1);
-}
-
-const { app, BrowserWindow, ipcMain, shell } = electronModule;
+import { app, BrowserWindow, ipcMain, shell } from 'electron';
 import * as path from 'path';
 import Store from 'electron-store';
 import { BackendManager } from './backend';
+
+// Handle Squirrel events for Windows installer
+if (require('electron-squirrel-startup')) {
+  app.quit();
+}
+
+// Declare webpack-generated constants
+declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
+declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 // Initialize electron store for settings
 const store = new Store<{
@@ -61,12 +48,11 @@ async function createWindow(): Promise<void> {
     y: bounds.y,
     minWidth: 1024,
     minHeight: 768,
-    icon: path.join(__dirname, '..', 'resources', 'icon.ico'),
+    icon: path.join(__dirname, '..', '..', 'resources', 'icon.ico'),
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
     },
     titleBarStyle: 'default',
     show: false
@@ -98,14 +84,17 @@ async function createWindow(): Promise<void> {
     return { action: 'deny' };
   });
 
-  // Load the app
+  // Load the app - in dev mode load from Vite dev server
   if (isDev) {
-    // In development, load from Vite dev server
-    await mainWindow.loadURL('http://localhost:5173');
-    mainWindow.webContents.openDevTools();
+    try {
+      await mainWindow.loadURL('http://localhost:5173');
+      mainWindow.webContents.openDevTools();
+    } catch {
+      // Fall back to webpack entry if Vite isn't running
+      await mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+    }
   } else {
-    // In production, load the built files
-    await mainWindow.loadFile(path.join(__dirname, '..', '..', 'frontend', 'dist', 'index.html'));
+    await mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
   }
 
   mainWindow.on('closed', () => {
@@ -115,12 +104,10 @@ async function createWindow(): Promise<void> {
 
 // IPC Handlers
 function setupIpcHandlers(): void {
-  // Get backend URL
   ipcMain.handle('get-backend-url', () => {
     return getBackendUrl();
   });
 
-  // Get settings
   ipcMain.handle('get-settings', () => {
     return {
       backendMode: store.get('backendMode'),
@@ -128,7 +115,6 @@ function setupIpcHandlers(): void {
     };
   });
 
-  // Update settings
   ipcMain.handle('set-settings', (_event, settings: { backendMode?: 'bundled' | 'external'; externalBackendUrl?: string }) => {
     if (settings.backendMode !== undefined) {
       store.set('backendMode', settings.backendMode);
@@ -139,7 +125,6 @@ function setupIpcHandlers(): void {
     return true;
   });
 
-  // Get backend status
   ipcMain.handle('get-backend-status', () => {
     if (store.get('backendMode') === 'external') {
       return { mode: 'external', status: 'unknown' };
@@ -150,7 +135,6 @@ function setupIpcHandlers(): void {
     };
   });
 
-  // Restart backend
   ipcMain.handle('restart-backend', async () => {
     if (store.get('backendMode') === 'bundled' && backendManager) {
       await backendManager.restart();
@@ -159,13 +143,11 @@ function setupIpcHandlers(): void {
     return false;
   });
 
-  // Check if running in Electron
   ipcMain.handle('is-electron', () => true);
 }
 
 async function startBackend(): Promise<void> {
   const mode = store.get('backendMode');
-
   if (mode === 'bundled') {
     backendManager = new BackendManager(isDev);
     await backendManager.start();
@@ -175,11 +157,7 @@ async function startBackend(): Promise<void> {
 // App lifecycle
 app.whenReady().then(async () => {
   setupIpcHandlers();
-
-  // Start backend first (if bundled mode)
   await startBackend();
-
-  // Then create window
   await createWindow();
 
   app.on('activate', async () => {
@@ -196,13 +174,11 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', async () => {
-  // Stop backend before quitting
   if (backendManager) {
     await backendManager.stop();
   }
 });
 
-// Handle uncaught exceptions
 process.on('uncaughtException', (error) => {
   console.error('Uncaught exception:', error);
 });
