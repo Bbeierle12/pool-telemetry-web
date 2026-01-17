@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="cueGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B4513;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#D2691E;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#8B4513;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="tipGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F5DEB3;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#DEB887;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="ferruleGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#E8E8E8;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="wrapGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#16213e;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f3460;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1a1a2e;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#bgGradient)" stroke="#e94560" stroke-width="4"/>
+
+  <!-- Pool cue stick - diagonal from bottom-left to top-right -->
+  <g transform="rotate(-45 128 128)">
+    <!-- Main shaft -->
+    <rect x="40" y="122" width="160" height="12" rx="2" fill="url(#cueGradient)"/>
+
+    <!-- Ferrule (white part near tip) -->
+    <rect x="195" y="123" width="12" height="10" rx="1" fill="url(#ferruleGradient)"/>
+
+    <!-- Tip (leather) -->
+    <ellipse cx="212" cy="128" rx="6" ry="5" fill="url(#tipGradient)"/>
+
+    <!-- Wrap/grip area -->
+    <rect x="50" y="123" width="40" height="10" rx="1" fill="url(#wrapGradient)"/>
+
+    <!-- Decorative rings -->
+    <rect x="90" y="123" width="3" height="10" fill="#FFD700"/>
+    <rect x="95" y="123" width="2" height="10" fill="#C0C0C0"/>
+
+    <!-- Butt cap -->
+    <rect x="38" y="121" width="14" height="14" rx="3" fill="#1a1a2e" stroke="#333" stroke-width="1"/>
+  </g>
+
+  <!-- Small cue ball accent -->
+  <circle cx="185" cy="185" r="18" fill="#FFFFF0" stroke="#ccc" stroke-width="1"/>
+  <circle cx="182" cy="182" r="4" fill="#fff" opacity="0.6"/>
+</svg>

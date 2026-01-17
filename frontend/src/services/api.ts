@@ -10,12 +10,64 @@ import type {
   ExportFormat,
 } from '../types'
 
+// Default base URL - will be updated if running in Electron
+let currentBaseUrl = '/api'
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: currentBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },
 })
+
+// Initialize the API base URL (call this on app startup)
+export async function initializeApi(): Promise<void> {
+  // Check if running in Electron
+  if (typeof window !== 'undefined' && window.electronAPI) {
+    try {
+      const backendUrl = await window.electronAPI.getBackendUrl()
+      if (backendUrl) {
+        currentBaseUrl = `${backendUrl}/api`
+        api.defaults.baseURL = currentBaseUrl
+        console.log('API initialized with Electron backend URL:', currentBaseUrl)
+      }
+    } catch (error) {
+      console.error('Failed to get backend URL from Electron:', error)
+    }
+  } else {
+    // In browser, use env variable if available or default proxy
+    const envUrl = import.meta.env.VITE_API_URL
+    if (envUrl) {
+      currentBaseUrl = `${envUrl}/api`
+      api.defaults.baseURL = currentBaseUrl
+    }
+    console.log('API initialized with browser URL:', currentBaseUrl)
+  }
+}
+
+// Update the API base URL dynamically (e.g., when settings change)
+export function setApiBaseUrl(backendUrl: string): void {
+  currentBaseUrl = backendUrl ? `${backendUrl}/api` : '/api'
+  api.defaults.baseURL = currentBaseUrl
+  console.log('API base URL updated to:', currentBaseUrl)
+}
+
+// Get current base URL (useful for WebSocket connections)
+export function getApiBaseUrl(): string {
+  return currentBaseUrl
+}
+
+// Get WebSocket URL based on current API URL
+export function getWebSocketUrl(path: string): string {
+  if (currentBaseUrl.startsWith('/')) {
+    // Relative URL - construct from window location
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${protocol}//${window.location.host}${path}`
+  }
+  // Absolute URL - convert http(s) to ws(s)
+  const wsUrl = currentBaseUrl.replace(/^http/, 'ws').replace('/api', '')
+  return `${wsUrl}${path}`
+}
 
 // Add auth token to requests
 api.interceptors.request.use((config) => {
@@ -91,7 +143,7 @@ export const videoApi = {
     api.post('/video/gopro/connect', config).then((res) => res.data),
 
   getThumbnail: (sessionId: string) =>
-    `/api/video/thumbnail/${sessionId}`,
+    `${currentBaseUrl}/video/thumbnail/${sessionId}`,
 }
 
 // Events API
@@ -112,7 +164,7 @@ export const exportApi = {
     api.post<ExportResponse>(`/export/${sessionId}`, { format, include_frames: includeFrames }).then((res) => res.data),
 
   getDownloadUrl: (filename: string) =>
-    `/api/export/download/${filename}`,
+    `${currentBaseUrl}/export/download/${filename}`,
 }
 
 // Analysis API

@@ -1,17 +1,30 @@
 import { useState, useEffect } from 'react'
-import { useSettingsStore, AllSettings } from '../../store/settingsStore'
+import { useSettingsStore, AllSettings, DesktopSettings } from '../../store/settingsStore'
 
 interface SettingsDialogProps {
   onClose: () => void
 }
 
-type TabId = 'api' | 'gopro' | 'video' | 'analysis' | 'storage' | 'cost' | 'display' | 'system'
+type TabId = 'api' | 'gopro' | 'video' | 'analysis' | 'storage' | 'cost' | 'display' | 'system' | 'desktop'
 
 export default function SettingsDialog({ onClose }: SettingsDialogProps) {
-  const { settings, loadSettings, saveSettings, isLoading } = useSettingsStore()
+  const {
+    settings,
+    loadSettings,
+    saveSettings,
+    isLoading,
+    isElectron,
+    desktopSettings,
+    backendStatus,
+    saveDesktopSettings,
+    refreshBackendStatus,
+    restartBackend
+  } = useSettingsStore()
   const [activeTab, setActiveTab] = useState<TabId>('api')
   const [localSettings, setLocalSettings] = useState<AllSettings>(settings)
+  const [localDesktopSettings, setLocalDesktopSettings] = useState<DesktopSettings>(desktopSettings)
   const [hasChanges, setHasChanges] = useState(false)
+  const [hasDesktopChanges, setHasDesktopChanges] = useState(false)
   const [showGeminiKey, setShowGeminiKey] = useState(false)
   const [showAnthropicKey, setShowAnthropicKey] = useState(false)
   const [storageInfo, setStorageInfo] = useState<{
@@ -31,6 +44,17 @@ export default function SettingsDialog({ onClose }: SettingsDialogProps) {
   useEffect(() => {
     setLocalSettings(settings)
   }, [settings])
+
+  useEffect(() => {
+    setLocalDesktopSettings(desktopSettings)
+  }, [desktopSettings])
+
+  useEffect(() => {
+    if (isElectron) {
+      const interval = setInterval(refreshBackendStatus, 5000)
+      return () => clearInterval(interval)
+    }
+  }, [isElectron, refreshBackendStatus])
 
   const fetchStorageInfo = async () => {
     try {
@@ -69,9 +93,24 @@ export default function SettingsDialog({ onClose }: SettingsDialogProps) {
     setHasChanges(true)
   }
 
+  const updateDesktopSetting = <K extends keyof DesktopSettings>(
+    field: K,
+    value: DesktopSettings[K]
+  ) => {
+    setLocalDesktopSettings((prev) => ({
+      ...prev,
+      [field]: value,
+    }))
+    setHasDesktopChanges(true)
+  }
+
   const handleSave = async () => {
     await saveSettings(localSettings)
+    if (isElectron && hasDesktopChanges) {
+      await saveDesktopSettings(localDesktopSettings)
+    }
     setHasChanges(false)
+    setHasDesktopChanges(false)
     onClose()
   }
 
@@ -110,6 +149,7 @@ export default function SettingsDialog({ onClose }: SettingsDialogProps) {
     { id: 'cost', label: 'Cost', icon: '💰' },
     { id: 'display', label: 'Display', icon: '🖥️' },
     { id: 'system', label: 'System', icon: '⚙️' },
+    ...(isElectron ? [{ id: 'desktop' as TabId, label: 'Desktop', icon: '🖥️' }] : []),
   ]
 
   return (
@@ -796,11 +836,102 @@ export default function SettingsDialog({ onClose }: SettingsDialogProps) {
                   fontSize: '0.85rem',
                 }}>
                   <strong>About Pool Telemetry</strong><br />
-                  Version 2.0.0 (Web Edition)<br />
+                  Version 2.0.0 ({isElectron ? 'Desktop' : 'Web'} Edition)<br />
                   Real-time pool/billiards analysis using AI vision.<br /><br />
                   <a href="https://github.com/your-repo" style={{ color: 'var(--accent-blue)' }}>
                     GitHub Repository
                   </a>
+                </div>
+              </div>
+            )}
+
+            {/* Desktop Tab (Electron only) */}
+            {activeTab === 'desktop' && isElectron && (
+              <div>
+                <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Desktop Settings</h3>
+
+                {/* Backend Status */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  borderRadius: '4px',
+                  marginBottom: '20px',
+                }}>
+                  <div style={{
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    backgroundColor: backendStatus === 'running' ? 'var(--accent-green)' :
+                                    backendStatus === 'starting' ? 'var(--accent-yellow)' :
+                                    backendStatus === 'error' ? 'var(--accent-red)' : 'var(--text-muted)',
+                  }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>Backend Status</div>
+                    <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'capitalize' }}>
+                      {backendStatus}
+                    </div>
+                  </div>
+                  {localDesktopSettings.backendMode === 'bundled' && (
+                    <button
+                      className="btn-secondary"
+                      onClick={restartBackend}
+                      disabled={backendStatus === 'starting'}
+                    >
+                      Restart Backend
+                    </button>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label" htmlFor="backend-mode-select">Backend Mode</label>
+                  <select
+                    id="backend-mode-select"
+                    title="Backend Mode"
+                    value={localDesktopSettings.backendMode}
+                    onChange={(e) => updateDesktopSetting('backendMode', e.target.value as 'bundled' | 'external')}
+                  >
+                    <option value="bundled">Bundled (Built-in backend)</option>
+                    <option value="external">External (Connect to remote server)</option>
+                  </select>
+                  <div className="form-hint">
+                    {localDesktopSettings.backendMode === 'bundled'
+                      ? 'The app will start and manage the backend automatically'
+                      : 'Connect to an external backend server (useful for remote setups)'}
+                  </div>
+                </div>
+
+                {localDesktopSettings.backendMode === 'external' && (
+                  <div className="form-group">
+                    <label className="form-label">External Backend URL</label>
+                    <input
+                      type="text"
+                      value={localDesktopSettings.externalBackendUrl}
+                      onChange={(e) => updateDesktopSetting('externalBackendUrl', e.target.value)}
+                      placeholder="http://localhost:8000"
+                    />
+                    <div className="form-hint">
+                      Full URL to the Pool Telemetry backend server
+                    </div>
+                  </div>
+                )}
+
+                <div style={{
+                  marginTop: '24px',
+                  padding: '12px',
+                  backgroundColor: 'var(--bg-tertiary)',
+                  borderRadius: '4px',
+                  fontSize: '0.85rem',
+                }}>
+                  <strong>Desktop Mode Info</strong><br /><br />
+                  <strong>Bundled Mode:</strong><br />
+                  The backend runs locally within the app. Best for single-user setups
+                  where everything runs on your machine.<br /><br />
+                  <strong>External Mode:</strong><br />
+                  Connect to a backend running on another machine or server.
+                  Useful for shared setups or when running the backend separately.
                 </div>
               </div>
             )}
@@ -816,7 +947,7 @@ export default function SettingsDialog({ onClose }: SettingsDialogProps) {
           borderTop: '1px solid var(--border-color)',
         }}>
           <div>
-            {hasChanges && (
+            {(hasChanges || hasDesktopChanges) && (
               <span style={{ color: 'var(--accent-yellow)', fontSize: '0.85rem' }}>
                 You have unsaved changes
               </span>
@@ -826,7 +957,7 @@ export default function SettingsDialog({ onClose }: SettingsDialogProps) {
             <button className="btn-secondary" onClick={onClose}>
               Cancel
             </button>
-            <button onClick={handleSave} disabled={isLoading || !hasChanges}>
+            <button onClick={handleSave} disabled={isLoading || (!hasChanges && !hasDesktopChanges)}>
               {isLoading ? 'Saving...' : 'Save Settings'}
             </button>
           </div>

@@ -1,0 +1,66 @@
+{
+  "name": "pool-telemetry-desktop",
+  "version": "1.0.0",
+  "description": "Pool Telemetry Desktop Application",
+  "main": "dist/main/main.js",
+  "author": "Pool Telemetry Team",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:main\" \"npm run dev:renderer\"",
+    "dev:main": "node scripts/build-main.js && electron .",
+    "dev:renderer": "cd ../frontend && npm run dev",
+    "build": "npm run build:icons && npm run build:main && npm run build:renderer",
+    "build:icons": "node scripts/generate-icon.js",
+    "build:main": "node scripts/build-main.js",
+    "build:renderer": "cd ../frontend && npm run build",
+    "package": "npm run build && electron-builder",
+    "package:win": "npm run build && electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "electron-store": "^8.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "concurrently": "^8.2.2",
+    "electron": "^27.3.0",
+    "electron-builder": "^24.9.1",
+    "esbuild": "^0.27.2",
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.33.1",
+    "typescript": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.pooltelemetry.desktop",
+    "productName": "Pool Telemetry",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "resources/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend-dist",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico",
+      "installerHeaderIcon": "resources/icon.ico"
+    }
+  }
+}

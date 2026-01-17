@@ -70,6 +70,11 @@ export interface NotificationSettings {
   notify_on_cost_warning: boolean
 }
 
+export interface DesktopSettings {
+  backendMode: 'bundled' | 'external'
+  externalBackendUrl: string
+}
+
 export interface AllSettings {
   api_keys: ApiKeysSettings
   gopro: GoProSettings
@@ -83,6 +88,9 @@ export interface AllSettings {
 
 interface SettingsStore {
   settings: AllSettings
+  desktopSettings: DesktopSettings
+  isElectron: boolean
+  backendStatus: 'starting' | 'running' | 'stopped' | 'error' | 'unknown'
   isLoading: boolean
   error: string | null
 
@@ -91,6 +99,14 @@ interface SettingsStore {
   saveSettings: (settings: AllSettings) => Promise<void>
   updateSection: <K extends keyof AllSettings>(section: K, data: AllSettings[K]) => Promise<void>
   resetSettings: () => Promise<void>
+
+  // Desktop-specific actions
+  initDesktop: () => Promise<void>
+  loadDesktopSettings: () => Promise<void>
+  saveDesktopSettings: (settings: Partial<DesktopSettings>) => Promise<void>
+  refreshBackendStatus: () => Promise<void>
+  restartBackend: () => Promise<void>
+  getBackendUrl: () => Promise<string>
 }
 
 const defaultSettings: AllSettings = {
@@ -158,8 +174,21 @@ const defaultSettings: AllSettings = {
   },
 }
 
+const defaultDesktopSettings: DesktopSettings = {
+  backendMode: 'bundled',
+  externalBackendUrl: 'http://localhost:8000',
+}
+
+// Helper to check if running in Electron
+const checkIsElectron = (): boolean => {
+  return typeof window !== 'undefined' && window.electronAPI !== undefined
+}
+
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   settings: defaultSettings,
+  desktopSettings: defaultDesktopSettings,
+  isElectron: checkIsElectron(),
+  backendStatus: 'unknown',
   isLoading: false,
   error: null,
 
@@ -207,5 +236,72 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     } catch (error) {
       set({ error: (error as Error).message, isLoading: false })
     }
+  },
+
+  // Desktop-specific actions
+  initDesktop: async () => {
+    const isElectron = checkIsElectron()
+    set({ isElectron })
+
+    if (isElectron) {
+      await get().loadDesktopSettings()
+      await get().refreshBackendStatus()
+    }
+  },
+
+  loadDesktopSettings: async () => {
+    if (!checkIsElectron()) return
+
+    try {
+      const settings = await window.electronAPI.getSettings()
+      set({ desktopSettings: settings })
+    } catch (error) {
+      console.error('Failed to load desktop settings:', error)
+    }
+  },
+
+  saveDesktopSettings: async (newSettings) => {
+    if (!checkIsElectron()) return
+
+    try {
+      await window.electronAPI.setSettings(newSettings)
+      const settings = await window.electronAPI.getSettings()
+      set({ desktopSettings: settings })
+    } catch (error) {
+      console.error('Failed to save desktop settings:', error)
+    }
+  },
+
+  refreshBackendStatus: async () => {
+    if (!checkIsElectron()) return
+
+    try {
+      const status = await window.electronAPI.getBackendStatus()
+      set({ backendStatus: status.status })
+    } catch (error) {
+      console.error('Failed to get backend status:', error)
+      set({ backendStatus: 'unknown' })
+    }
+  },
+
+  restartBackend: async () => {
+    if (!checkIsElectron()) return
+
+    try {
+      set({ backendStatus: 'starting' })
+      await window.electronAPI.restartBackend()
+      await get().refreshBackendStatus()
+    } catch (error) {
+      console.error('Failed to restart backend:', error)
+      set({ backendStatus: 'error' })
+    }
+  },
+
+  getBackendUrl: async () => {
+    if (checkIsElectron()) {
+      return await window.electronAPI.getBackendUrl()
+    }
+    // In browser, use the default proxy or env variable
+    return import.meta.env.VITE_API_URL || ''
   },
 }))

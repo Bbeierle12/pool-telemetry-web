@@ -34,3 +34,6 @@ slowapi==0.1.9
 pytest==9.0.0
 pytest-asyncio==0.23.0
 pytest-cov==4.1.0
+
+# Desktop build (optional - only needed for bundling)
+pyinstaller==6.3.0
