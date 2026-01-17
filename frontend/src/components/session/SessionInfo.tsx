@@ -1,4 +1,5 @@
 import { useSessionStore } from '../../store/sessionStore'
+import { formatDuration } from '../../utils/formatting'
 
 export default function SessionInfo() {
   const {
@@ -8,13 +9,6 @@ export default function SessionInfo() {
     runtime,
     geminiCost,
   } = useSessionStore()
-
-  const formatRuntime = (seconds: number): string => {
-    const hrs = Math.floor(seconds / 3600)
-    const mins = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
-  }
 
   return (
     <div style={{
@@ -26,7 +20,7 @@ export default function SessionInfo() {
       <StatItem label="Shots" value={shotCount} />
       <StatItem label="Pocketed" value={pocketedCount} color="var(--accent-green)" />
       <StatItem label="Fouls" value={foulCount} color="var(--accent-red)" />
-      <StatItem label="Runtime" value={formatRuntime(runtime)} mono />
+      <StatItem label="Runtime" value={formatDuration(runtime)} mono />
       <StatItem label="AI Cost" value={`$${geminiCost.toFixed(4)}`} mono />
     </div>
   )

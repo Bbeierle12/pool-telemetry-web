@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useSessionStore } from '../../store/sessionStore'
 import { sessionsApi } from '../../services/api'
+import { formatDate, formatDuration } from '../../utils/formatting'
 import type { SessionSummary } from '../../types'
 import ExportDialog from '../dialogs/ExportDialog'
 
@@ -58,25 +59,6 @@ export default function SessionBrowser({ onClose }: SessionBrowserProps) {
     } catch (error) {
       console.error('Failed to delete session:', error)
     }
-  }
-
-  const formatDate = (dateStr: string): string => {
-    const date = new Date(dateStr)
-    return date.toLocaleString('en-US', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  }
-
-  const formatDuration = (seconds: number | null): string => {
-    if (!seconds) return '—'
-    const hrs = Math.floor(seconds / 3600)
-    const mins = Math.floor((seconds % 3600) / 60)
-    const secs = seconds % 60
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
   const selectedSession = sessions.find(s => s.id === selectedId)
