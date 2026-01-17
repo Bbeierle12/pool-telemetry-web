@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
 from typing import List
 
+import aiofiles
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
@@ -15,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import get_db
+from app.core.auth import get_current_profile_id
 from app.models.database import Session, Shot, Event, Foul, Game, KeyFrame
 from app.models.schemas import ExportRequest, ExportResponse
 
@@ -25,11 +28,17 @@ router = APIRouter()
 async def export_session(
     session_id: str,
     export_request: ExportRequest,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Export session data in specified format."""
-    # Verify session exists
-    result = await db.execute(select(Session).where(Session.id == session_id))
+    # Verify session exists and user owns it
+    result = await db.execute(
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
+    )
     session = result.scalar_one_or_none()
 
     if not session:
@@ -76,9 +85,26 @@ async def export_session(
 
 
 @router.get("/download/{filename}")
-async def download_export(filename: str):
-    """Download an exported file."""
-    filepath = settings.data_directory / "exports" / filename
+async def download_export(
+    filename: str,
+    profile_id: str = Depends(get_current_profile_id),
+):
+    """Download an exported file with path traversal protection."""
+    # SECURITY: Validate filename format to prevent path traversal
+    # Expected format: session_{hex32}_{YYYYMMDD}_{HHMMSS}_{type}.(json|csv|jsonl)
+    if not re.match(r'^session_[a-f0-9]+_\d{8}_\d{6}_\w+\.(json|csv|jsonl)$', filename):
+        raise HTTPException(status_code=400, detail="Invalid filename format")
+
+    # SECURITY: Prevent path traversal sequences
+    if '..' in filename or '/' in filename or '\\' in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    export_dir = settings.data_directory / "exports"
+    filepath = (export_dir / filename).resolve()
+
+    # SECURITY: Verify resolved path is within exports directory
+    if not str(filepath).startswith(str(export_dir.resolve())):
+        raise HTTPException(status_code=400, detail="Invalid path")
 
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="Export file not found")
@@ -173,8 +199,8 @@ async def _export_full_json(session_id: str, filepath: Path, db: AsyncSession):
         ],
     }
 
-    with open(filepath, "w") as f:
-        json.dump(export_data, f, indent=2)
+    async with aiofiles.open(filepath, "w") as f:
+        await f.write(json.dumps(export_data, indent=2))
 
 
 async def _export_claude_json(session_id: str, filepath: Path, db: AsyncSession):
@@ -215,8 +241,8 @@ async def _export_claude_json(session_id: str, filepath: Path, db: AsyncSession)
         ],
     }
 
-    with open(filepath, "w") as f:
-        json.dump(export_data, f, indent=2)
+    async with aiofiles.open(filepath, "w") as f:
+        await f.write(json.dumps(export_data, indent=2))
 
 
 async def _export_shots_csv(session_id: str, filepath: Path, db: AsyncSession):
@@ -226,24 +252,28 @@ async def _export_shots_csv(session_id: str, filepath: Path, db: AsyncSession):
     )
     shots = shots_result.scalars().all()
 
-    with open(filepath, "w", newline="") as f:
-        writer = csv.writer(f)
+    # Build CSV in memory then write asynchronously
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "shot_number", "game_number", "timestamp_start_ms", "timestamp_end_ms",
+        "duration_ms", "balls_pocketed", "confidence"
+    ])
+
+    for shot in shots:
+        pocketed = ",".join(shot.balls_pocketed) if shot.balls_pocketed else ""
         writer.writerow([
-            "shot_number", "game_number", "timestamp_start_ms", "timestamp_end_ms",
-            "duration_ms", "balls_pocketed", "confidence"
+            shot.shot_number,
+            shot.game_number,
+            shot.timestamp_start_ms,
+            shot.timestamp_end_ms,
+            shot.duration_ms,
+            pocketed,
+            shot.confidence_overall,
         ])
 
-        for shot in shots:
-            pocketed = ",".join(shot.balls_pocketed) if shot.balls_pocketed else ""
-            writer.writerow([
-                shot.shot_number,
-                shot.game_number,
-                shot.timestamp_start_ms,
-                shot.timestamp_end_ms,
-                shot.duration_ms,
-                pocketed,
-                shot.confidence_overall,
-            ])
+    async with aiofiles.open(filepath, "w", newline="") as f:
+        await f.write(output.getvalue())
 
 
 async def _export_events_jsonl(session_id: str, filepath: Path, db: AsyncSession):
@@ -253,11 +283,15 @@ async def _export_events_jsonl(session_id: str, filepath: Path, db: AsyncSession
     )
     events = events_result.scalars().all()
 
-    with open(filepath, "w") as f:
-        for event in events:
-            line = json.dumps({
-                "timestamp_ms": event.timestamp_ms,
-                "event_type": event.event_type,
-                "event_data": event.event_data,
-            })
-            f.write(line + "\n")
+    # Build JSONL content in memory then write asynchronously
+    lines = []
+    for event in events:
+        line = json.dumps({
+            "timestamp_ms": event.timestamp_ms,
+            "event_type": event.event_type,
+            "event_data": event.event_data,
+        })
+        lines.append(line)
+
+    async with aiofiles.open(filepath, "w") as f:
+        await f.write("\n".join(lines) + "\n" if lines else "")

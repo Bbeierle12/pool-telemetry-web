@@ -11,11 +11,12 @@ from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session
+from app.core.auth import verify_ws_token
 from app.models.database import Session
 
 router = APIRouter()
@@ -176,10 +177,15 @@ async def update_session_status(session_id: str, status: str):
         await db.commit()
 
 
-async def get_session_config(session_id: str) -> Optional[dict]:
-    """Get session configuration from database."""
+async def get_session_config(session_id: str, profile_id: str) -> Optional[dict]:
+    """Get session configuration from database if owned by profile."""
     async with async_session() as db:
-        result = await db.execute(select(Session).where(Session.id == session_id))
+        result = await db.execute(
+            select(Session).where(
+                Session.id == session_id,
+                Session.profile_id == profile_id
+            )
+        )
         session = result.scalar_one_or_none()
         if session:
             return {
@@ -192,23 +198,35 @@ async def get_session_config(session_id: str) -> Optional[dict]:
 
 
 @router.websocket("/video/{session_id}")
-async def video_websocket(websocket: WebSocket, session_id: str):
+async def video_websocket(
+    websocket: WebSocket,
+    session_id: str,
+    token: Optional[str] = Query(None),
+):
     """
     WebSocket endpoint for live video streaming.
 
+    Requires authentication via token query parameter.
     Sends JPEG frames as base64-encoded strings.
     """
-    await websocket.accept()
-
-    # Get session config
-    config = await get_session_config(session_id)
-    if not config:
-        await websocket.send_json({
-            "type": "error",
-            "message": "Session not found"
-        })
-        await websocket.close()
+    # Verify authentication before accepting connection
+    if not token:
+        await websocket.close(code=4001, reason="Authentication required")
         return
+
+    profile_id = verify_ws_token(token)
+    if not profile_id:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    # Get session config (also verifies ownership)
+    config = await get_session_config(session_id, profile_id)
+    if not config:
+        await websocket.close(code=4004, reason="Session not found")
+        return
+
+    # Now accept the connection
+    await websocket.accept()
 
     # Parse device index from source_path (e.g., "device:0")
     device_index = 0

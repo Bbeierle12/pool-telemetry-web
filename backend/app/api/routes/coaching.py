@@ -7,10 +7,29 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import get_db
+from app.core.auth import get_current_profile_id
 from app.core.rate_limit import limiter, RATE_LIMIT_AI
 from app.models.database import Session, Shot
 
 router = APIRouter()
+
+
+async def _verify_session_ownership(
+    session_id: str,
+    profile_id: str,
+    db: AsyncSession
+) -> Session:
+    """Verify session exists and belongs to the profile."""
+    result = await db.execute(
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 
 @router.post("/{session_id}/analyze")
@@ -18,6 +37,7 @@ router = APIRouter()
 async def analyze_session(
     request: Request,
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get AI analysis of a complete session."""
@@ -28,11 +48,7 @@ async def analyze_session(
             "fallback_feedback": _get_fallback_session_feedback(session_id)
         }
 
-    result = await db.execute(select(Session).where(Session.id == session_id))
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = await _verify_session_ownership(session_id, profile_id, db)
 
     shots_result = await db.execute(
         select(Shot).where(Shot.session_id == session_id).order_by(Shot.shot_number)
@@ -72,6 +88,7 @@ async def get_shot_feedback(
     request: Request,
     session_id: str,
     shot_number: int,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get AI feedback on a specific shot."""
@@ -81,6 +98,8 @@ async def get_shot_feedback(
             "message": "Claude API key not configured",
             "fallback_feedback": _get_fallback_shot_feedback()
         }
+
+    await _verify_session_ownership(session_id, profile_id, db)
 
     shot_result = await db.execute(
         select(Shot)
@@ -120,14 +139,11 @@ async def get_shot_feedback(
 @router.get("/{session_id}/drills")
 async def suggest_drills(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get drill suggestions based on session performance."""
-    result = await db.execute(select(Session).where(Session.id == session_id))
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    session = await _verify_session_ownership(session_id, profile_id, db)
 
     # Calculate weak areas
     accuracy = session.total_pocketed / max(session.total_shots, 1)

@@ -4,13 +4,14 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Dict, Set
+from typing import Dict, Optional, Set
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import async_session
+from app.core.auth import verify_ws_token
 from app.models.database import Session, Event
 
 router = APIRouter()
@@ -67,9 +68,15 @@ manager = ConnectionManager()
 
 
 @router.websocket("/events/{session_id}")
-async def events_websocket(websocket: WebSocket, session_id: str):
+async def events_websocket(
+    websocket: WebSocket,
+    session_id: str,
+    token: Optional[str] = Query(None),
+):
     """
     WebSocket endpoint for real-time events.
+
+    Requires authentication via token query parameter.
 
     Clients receive:
     - ball_update: Ball positions and states
@@ -78,6 +85,29 @@ async def events_websocket(websocket: WebSocket, session_id: str):
     - foul: Foul detected
     - status: Session status changes
     """
+    # Verify authentication
+    if not token:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+
+    profile_id = verify_ws_token(token)
+    if not profile_id:
+        await websocket.close(code=4001, reason="Invalid token")
+        return
+
+    # Verify session exists and belongs to user
+    async with async_session() as db:
+        result = await db.execute(
+            select(Session).where(
+                Session.id == session_id,
+                Session.profile_id == profile_id
+            )
+        )
+        session = result.scalar_one_or_none()
+        if not session:
+            await websocket.close(code=4004, reason="Session not found")
+            return
+
     await manager.connect(session_id, websocket)
 
     # Send initial connection confirmation

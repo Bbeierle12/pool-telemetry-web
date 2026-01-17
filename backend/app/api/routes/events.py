@@ -8,10 +8,29 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.auth import get_current_profile_id
 from app.models.database import Event, Session
 from app.models.schemas import EventResponse
 
 router = APIRouter()
+
+
+async def _verify_session_ownership(
+    session_id: str,
+    profile_id: str,
+    db: AsyncSession
+) -> Session:
+    """Verify session exists and belongs to the profile."""
+    result = await db.execute(
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 
 @router.get("/{session_id}", response_model=List[EventResponse])
@@ -20,15 +39,11 @@ async def list_events(
     event_type: Optional[str] = Query(None, description="Filter by event type"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """List events for a session."""
-    # Verify session exists
-    result = await db.execute(select(Session).where(Session.id == session_id))
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    await _verify_session_ownership(session_id, profile_id, db)
 
     # Query events
     query = select(Event).where(Event.session_id == session_id)
@@ -47,9 +62,12 @@ async def list_events(
 @router.get("/{session_id}/types")
 async def list_event_types(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """List unique event types in a session."""
+    await _verify_session_ownership(session_id, profile_id, db)
+
     result = await db.execute(
         select(Event.event_type)
         .where(Event.session_id == session_id)
@@ -64,9 +82,12 @@ async def list_event_types(
 async def get_latest_events(
     session_id: str,
     count: int = Query(10, ge=1, le=50),
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get the most recent events for a session."""
+    await _verify_session_ownership(session_id, profile_id, db)
+
     result = await db.execute(
         select(Event)
         .where(Event.session_id == session_id)

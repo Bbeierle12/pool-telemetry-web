@@ -4,14 +4,33 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.auth import get_current_profile_id
 from app.models.database import Session, Shot, PhysicsAnalysis, Trajectory
 from app.models.schemas import ShotResponse, ShotDetail
 
 router = APIRouter()
+
+
+async def _verify_session_ownership(
+    session_id: str,
+    profile_id: str,
+    db: AsyncSession
+) -> Session:
+    """Verify session exists and belongs to the profile."""
+    result = await db.execute(
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session
 
 
 @router.get("/{session_id}/shots", response_model=List[ShotResponse])
@@ -19,14 +38,11 @@ async def list_shots(
     session_id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """List all shots in a session."""
-    result = await db.execute(select(Session).where(Session.id == session_id))
-    session = result.scalar_one_or_none()
-
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    await _verify_session_ownership(session_id, profile_id, db)
 
     shots_result = await db.execute(
         select(Shot)
@@ -44,9 +60,12 @@ async def list_shots(
 async def get_shot_detail(
     session_id: str,
     shot_number: int,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get detailed information for a specific shot."""
+    await _verify_session_ownership(session_id, profile_id, db)
+
     result = await db.execute(
         select(Shot)
         .where(Shot.session_id == session_id)
@@ -64,9 +83,12 @@ async def get_shot_detail(
 async def get_shot_physics(
     session_id: str,
     shot_number: int,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get physics analysis for a shot."""
+    await _verify_session_ownership(session_id, profile_id, db)
+
     shot_result = await db.execute(
         select(Shot)
         .where(Shot.session_id == session_id)
@@ -102,9 +124,12 @@ async def get_shot_physics(
 async def get_shot_trajectories(
     session_id: str,
     shot_number: int,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get ball trajectories for a shot."""
+    await _verify_session_ownership(session_id, profile_id, db)
+
     shot_result = await db.execute(
         select(Shot)
         .where(Shot.session_id == session_id)
@@ -137,21 +162,17 @@ async def get_shot_trajectories(
 @router.get("/{session_id}/accuracy")
 async def get_accuracy_stats(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get accuracy statistics for a session."""
-    result = await db.execute(select(Session).where(Session.id == session_id))
-    session = result.scalar_one_or_none()
+    session = await _verify_session_ownership(session_id, profile_id, db)
 
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+    # Get total shot count using SQL COUNT
+    total_shots = await db.scalar(
+        select(func.count()).select_from(Shot).where(Shot.session_id == session_id)
+    ) or 0
 
-    shots_result = await db.execute(
-        select(Shot).where(Shot.session_id == session_id)
-    )
-    shots = shots_result.scalars().all()
-
-    total_shots = len(shots)
     if total_shots == 0:
         return {
             "session_id": session_id,
@@ -160,11 +181,18 @@ async def get_accuracy_stats(
             "avg_balls_per_shot": 0.0,
         }
 
+    # For accuracy calculations, we need to load shots with pocketed data
+    # This is necessary because balls_pocketed is a JSON field
+    shots_result = await db.execute(
+        select(Shot.balls_pocketed).where(Shot.session_id == session_id)
+    )
+    balls_pocketed_list = [row[0] for row in shots_result.all()]
+
     shots_with_pockets = sum(
-        1 for s in shots if s.balls_pocketed and len(s.balls_pocketed) > 0
+        1 for bp in balls_pocketed_list if bp and len(bp) > 0
     )
     total_pocketed = sum(
-        len(s.balls_pocketed) for s in shots if s.balls_pocketed
+        len(bp) for bp in balls_pocketed_list if bp
     )
 
     return {
@@ -182,13 +210,22 @@ async def get_accuracy_stats(
 @router.get("/{session_id}/breakdown")
 async def get_shot_breakdown(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get shot breakdown by type and outcome."""
+    await _verify_session_ownership(session_id, profile_id, db)
+
+    # Get total count
+    total_shots = await db.scalar(
+        select(func.count()).select_from(Shot).where(Shot.session_id == session_id)
+    ) or 0
+
+    # Get balls_pocketed data for outcome analysis
     shots_result = await db.execute(
-        select(Shot).where(Shot.session_id == session_id)
+        select(Shot.balls_pocketed).where(Shot.session_id == session_id)
     )
-    shots = shots_result.scalars().all()
+    balls_pocketed_list = [row[0] for row in shots_result.all()]
 
     # Analyze shot outcomes
     outcomes = {
@@ -197,14 +234,14 @@ async def get_shot_breakdown(
         "foul": 0,
     }
 
-    for shot in shots:
-        if shot.balls_pocketed and len(shot.balls_pocketed) > 0:
+    for bp in balls_pocketed_list:
+        if bp and len(bp) > 0:
             outcomes["successful"] += 1
         else:
             outcomes["missed"] += 1
 
     return {
         "session_id": session_id,
-        "total_shots": len(shots),
+        "total_shots": total_shots,
         "outcomes": outcomes,
     }

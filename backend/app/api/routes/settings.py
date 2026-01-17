@@ -2,16 +2,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+import aiofiles
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.config import settings
+from app.core.auth import get_current_profile, require_admin
+from app.models.database import Profile
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # Settings file path
 SETTINGS_FILE = settings.data_directory / "user_settings.json"
@@ -20,6 +25,14 @@ SETTINGS_FILE = settings.data_directory / "user_settings.json"
 class ApiKeysSettings(BaseModel):
     gemini_key: Optional[str] = None
     anthropic_key: Optional[str] = None
+
+
+class ApiKeysResponse(BaseModel):
+    """Response model that masks API keys for security."""
+    gemini_key_configured: bool = False
+    anthropic_key_configured: bool = False
+    gemini_key_preview: Optional[str] = None
+    anthropic_key_preview: Optional[str] = None
 
 
 class GoProSettings(BaseModel):
@@ -101,78 +114,164 @@ class AllSettings(BaseModel):
     notifications: NotificationSettings = Field(default_factory=NotificationSettings)
 
 
-def load_settings() -> AllSettings:
+class AllSettingsResponse(BaseModel):
+    """Response model with masked API keys."""
+    api_keys: ApiKeysResponse = Field(default_factory=ApiKeysResponse)
+    gopro: GoProSettings = Field(default_factory=GoProSettings)
+    video: VideoSettings = Field(default_factory=VideoSettings)
+    analysis: AnalysisSettings = Field(default_factory=AnalysisSettings)
+    storage: StorageSettings = Field(default_factory=StorageSettings)
+    cost: CostSettings = Field(default_factory=CostSettings)
+    display: DisplaySettings = Field(default_factory=DisplaySettings)
+    notifications: NotificationSettings = Field(default_factory=NotificationSettings)
+
+
+def _mask_key(key: Optional[str]) -> Optional[str]:
+    """Return last 4 characters of key, or None if too short."""
+    if not key or len(key) < 8:
+        return None
+    return f"...{key[-4:]}"
+
+
+def _mask_api_keys(api_keys: ApiKeysSettings) -> ApiKeysResponse:
+    """Create a masked response from API keys settings."""
+    return ApiKeysResponse(
+        gemini_key_configured=bool(api_keys.gemini_key),
+        anthropic_key_configured=bool(api_keys.anthropic_key),
+        gemini_key_preview=_mask_key(api_keys.gemini_key),
+        anthropic_key_preview=_mask_key(api_keys.anthropic_key),
+    )
+
+
+async def load_settings() -> AllSettings:
     """Load settings from file or return defaults."""
     if SETTINGS_FILE.exists():
         try:
-            data = json.loads(SETTINGS_FILE.read_text())
+            async with aiofiles.open(SETTINGS_FILE, "r") as f:
+                content = await f.read()
+            data = json.loads(content)
             return AllSettings(**data)
-        except Exception:
-            pass
+        except json.JSONDecodeError as e:
+            logger.warning(f"Failed to parse settings file: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to load settings: {e}")
     return AllSettings()
 
 
-def save_settings(user_settings: AllSettings) -> None:
+async def save_settings(user_settings: AllSettings) -> None:
     """Save settings to file."""
-    SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_FILE.write_text(user_settings.model_dump_json(indent=2))
+    try:
+        SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        async with aiofiles.open(SETTINGS_FILE, "w") as f:
+            await f.write(user_settings.model_dump_json(indent=2))
+    except Exception as e:
+        logger.error(f"Failed to save settings: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save settings")
 
 
-@router.get("", response_model=AllSettings)
-async def get_all_settings():
-    """Get all application settings."""
-    return load_settings()
+@router.get("", response_model=AllSettingsResponse)
+async def get_all_settings(
+    profile: Profile = Depends(get_current_profile),
+):
+    """Get all application settings (API keys are masked)."""
+    user_settings = await load_settings()
+    return AllSettingsResponse(
+        api_keys=_mask_api_keys(user_settings.api_keys),
+        gopro=user_settings.gopro,
+        video=user_settings.video,
+        analysis=user_settings.analysis,
+        storage=user_settings.storage,
+        cost=user_settings.cost,
+        display=user_settings.display,
+        notifications=user_settings.notifications,
+    )
 
 
-@router.put("", response_model=AllSettings)
-async def update_all_settings(new_settings: AllSettings):
-    """Update all application settings."""
-    save_settings(new_settings)
-    return new_settings
+@router.put("", response_model=AllSettingsResponse)
+async def update_all_settings(
+    new_settings: AllSettings,
+    profile: Profile = Depends(require_admin),
+):
+    """Update all application settings (admin only)."""
+    await save_settings(new_settings)
+    return AllSettingsResponse(
+        api_keys=_mask_api_keys(new_settings.api_keys),
+        gopro=new_settings.gopro,
+        video=new_settings.video,
+        analysis=new_settings.analysis,
+        storage=new_settings.storage,
+        cost=new_settings.cost,
+        display=new_settings.display,
+        notifications=new_settings.notifications,
+    )
 
 
-@router.patch("/api-keys", response_model=ApiKeysSettings)
-async def update_api_keys(api_keys: ApiKeysSettings):
-    """Update API keys only."""
-    current = load_settings()
+@router.get("/api-keys", response_model=ApiKeysResponse)
+async def get_api_key_status(
+    profile: Profile = Depends(require_admin),
+):
+    """Get API key configuration status (admin only)."""
+    user_settings = await load_settings()
+    return _mask_api_keys(user_settings.api_keys)
+
+
+@router.patch("/api-keys", response_model=ApiKeysResponse)
+async def update_api_keys(
+    api_keys: ApiKeysSettings,
+    profile: Profile = Depends(require_admin),
+):
+    """Update API keys (admin only)."""
+    current = await load_settings()
     current.api_keys = api_keys
-    save_settings(current)
-    return api_keys
+    await save_settings(current)
+    return _mask_api_keys(api_keys)
 
 
 @router.patch("/gopro", response_model=GoProSettings)
-async def update_gopro_settings(gopro: GoProSettings):
-    """Update GoPro settings only."""
-    current = load_settings()
+async def update_gopro_settings(
+    gopro: GoProSettings,
+    profile: Profile = Depends(get_current_profile),
+):
+    """Update GoPro settings."""
+    current = await load_settings()
     current.gopro = gopro
-    save_settings(current)
+    await save_settings(current)
     return gopro
 
 
 @router.patch("/analysis", response_model=AnalysisSettings)
-async def update_analysis_settings(analysis: AnalysisSettings):
-    """Update analysis/AI settings only."""
-    current = load_settings()
+async def update_analysis_settings(
+    analysis: AnalysisSettings,
+    profile: Profile = Depends(get_current_profile),
+):
+    """Update analysis/AI settings."""
+    current = await load_settings()
     current.analysis = analysis
-    save_settings(current)
+    await save_settings(current)
     return analysis
 
 
 @router.patch("/storage", response_model=StorageSettings)
-async def update_storage_settings(storage: StorageSettings):
-    """Update storage settings only."""
-    current = load_settings()
+async def update_storage_settings(
+    storage: StorageSettings,
+    profile: Profile = Depends(require_admin),
+):
+    """Update storage settings (admin only)."""
+    current = await load_settings()
     current.storage = storage
-    save_settings(current)
+    await save_settings(current)
     return storage
 
 
 @router.patch("/display", response_model=DisplaySettings)
-async def update_display_settings(display: DisplaySettings):
-    """Update display settings only."""
-    current = load_settings()
+async def update_display_settings(
+    display: DisplaySettings,
+    profile: Profile = Depends(get_current_profile),
+):
+    """Update display settings."""
+    current = await load_settings()
     current.display = display
-    save_settings(current)
+    await save_settings(current)
     return display
 
 
@@ -186,18 +285,28 @@ class StorageInfo(BaseModel):
 
 
 @router.get("/storage/info", response_model=StorageInfo)
-async def get_storage_info():
+async def get_storage_info(
+    profile: Profile = Depends(get_current_profile),
+):
     """Get storage usage information."""
     def get_dir_size(path: Path) -> float:
         if not path.exists():
             return 0
-        total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
-        return total / (1024 * 1024)  # MB
+        try:
+            total = sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+            return total / (1024 * 1024)  # MB
+        except Exception as e:
+            logger.warning(f"Error calculating directory size for {path}: {e}")
+            return 0
 
     def count_files(path: Path, pattern: str = "*") -> int:
         if not path.exists():
             return 0
-        return len(list(path.rglob(pattern)))
+        try:
+            return len(list(path.rglob(pattern)))
+        except Exception as e:
+            logger.warning(f"Error counting files in {path}: {e}")
+            return 0
 
     data_dir = settings.data_directory
 
@@ -214,17 +323,21 @@ async def get_storage_info():
 class CleanupResult(BaseModel):
     deleted_count: int
     freed_mb: float
+    errors: int = 0
 
 
 @router.post("/storage/cleanup", response_model=CleanupResult)
-async def cleanup_storage(older_than_days: int = 30):
-    """Clean up old data from storage."""
+async def cleanup_storage(
+    older_than_days: int = 30,
+    profile: Profile = Depends(require_admin),
+):
+    """Clean up old data from storage (admin only)."""
     import time
-    from datetime import datetime, timedelta
 
     cutoff = time.time() - (older_than_days * 24 * 60 * 60)
     deleted = 0
     freed = 0
+    errors = 0
 
     # Clean up HLS segments older than cutoff
     hls_dir = settings.data_directory / "hls"
@@ -238,33 +351,44 @@ async def cleanup_storage(older_than_days: int = 30):
                         shutil.rmtree(session_dir)
                         deleted += 1
                         freed += size
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup {session_dir}: {e}")
+                    errors += 1
 
     return CleanupResult(
         deleted_count=deleted,
         freed_mb=freed / (1024 * 1024),
+        errors=errors,
     )
 
 
 @router.post("/storage/clear-cache")
-async def clear_cache():
-    """Clear all cached data (HLS segments, temp files)."""
+async def clear_cache(
+    profile: Profile = Depends(require_admin),
+):
+    """Clear all cached data - HLS segments, temp files (admin only)."""
     cleared = 0
+    errors = 0
 
     # Clear HLS cache
     hls_dir = settings.data_directory / "hls"
     if hls_dir.exists():
         for item in hls_dir.iterdir():
             if item.is_dir():
-                shutil.rmtree(item)
-                cleared += 1
+                try:
+                    shutil.rmtree(item)
+                    cleared += 1
+                except Exception as e:
+                    logger.warning(f"Failed to clear cache item {item}: {e}")
+                    errors += 1
 
-    return {"message": f"Cleared {cleared} cached items"}
+    return {"message": f"Cleared {cleared} cached items", "errors": errors}
 
 
 @router.get("/system/info")
-async def get_system_info():
+async def get_system_info(
+    profile: Profile = Depends(get_current_profile),
+):
     """Get system information for diagnostics."""
     import platform
     import sys
@@ -275,21 +399,34 @@ async def get_system_info():
     except ImportError:
         opencv_version = "Not installed"
 
+    # Don't expose full paths - only relative info
     return {
         "app_version": "2.0.0",
-        "python_version": sys.version,
-        "platform": platform.platform(),
+        "python_version": sys.version.split()[0],  # Just version number
+        "platform": platform.system(),
         "opencv_version": opencv_version,
-        "data_directory": str(settings.data_directory),
-        "database_url": settings.database_url.split("///")[-1],  # Hide full path
         "gemini_configured": settings.gemini_api_key is not None,
         "anthropic_configured": settings.anthropic_api_key is not None,
     }
 
 
 @router.post("/reset")
-async def reset_settings():
-    """Reset all settings to defaults."""
+async def reset_settings(
+    profile: Profile = Depends(require_admin),
+):
+    """Reset all settings to defaults (admin only)."""
     default_settings = AllSettings()
-    save_settings(default_settings)
-    return {"message": "Settings reset to defaults", "settings": default_settings}
+    await save_settings(default_settings)
+    return {
+        "message": "Settings reset to defaults",
+        "settings": AllSettingsResponse(
+            api_keys=_mask_api_keys(default_settings.api_keys),
+            gopro=default_settings.gopro,
+            video=default_settings.video,
+            analysis=default_settings.analysis,
+            storage=default_settings.storage,
+            cost=default_settings.cost,
+            display=default_settings.display,
+            notifications=default_settings.notifications,
+        )
+    }

@@ -1,5 +1,6 @@
 """Video upload and streaming routes."""
 import asyncio
+import logging
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -11,12 +12,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core.database import get_db
+from app.core.database import get_db, async_session
+from app.core.auth import get_current_profile_id
 from app.core.rate_limit import limiter, RATE_LIMIT_UPLOAD
 from app.models.database import Session
 from app.models.schemas import GoProConfig, VideoUploadResponse, StreamInfo
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 async def process_video_to_hls(video_path: Path, session_id: str):
@@ -47,7 +50,22 @@ async def process_video_to_hls(video_path: Path, session_id: str):
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE
     )
-    await process.wait()
+    stdout, stderr = await process.communicate()
+
+    # Update session status based on FFmpeg result
+    async with async_session() as db:
+        result = await db.execute(select(Session).where(Session.id == session_id))
+        session = result.scalar_one_or_none()
+        if session:
+            if process.returncode != 0:
+                error_msg = stderr.decode() if stderr else "Unknown FFmpeg error"
+                logger.error(f"FFmpeg failed for session {session_id}: {error_msg}")
+                session.status = "error"
+                session.notes = f"FFmpeg error: {error_msg[:500]}"
+            else:
+                logger.info(f"FFmpeg completed successfully for session {session_id}")
+                session.status = "ready"
+            await db.commit()
 
 
 @router.post("/upload", response_model=VideoUploadResponse)
@@ -55,6 +73,7 @@ async def process_video_to_hls(video_path: Path, session_id: str):
 async def upload_video(
     request: Request,
     background_tasks: BackgroundTasks,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db),
     file: UploadFile = File(...),
     session_id: Optional[str] = None,
@@ -75,6 +94,7 @@ async def upload_video(
         session_id = uuid.uuid4().hex
         session = Session(
             id=session_id,
+            profile_id=profile_id,
             name=file.filename,
             source_type="video_file",
             source_path=file.filename,
@@ -83,7 +103,12 @@ async def upload_video(
         db.add(session)
         await db.commit()
     else:
-        result = await db.execute(select(Session).where(Session.id == session_id))
+        result = await db.execute(
+            select(Session).where(
+                Session.id == session_id,
+                Session.profile_id == profile_id
+            )
+        )
         session = result.scalar_one_or_none()
         if not session:
             raise HTTPException(status_code=404, detail="Session not found")
@@ -121,10 +146,16 @@ async def upload_video(
 @router.get("/stream/{session_id}", response_model=StreamInfo)
 async def get_stream_info(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get HLS stream information for a session."""
-    result = await db.execute(select(Session).where(Session.id == session_id))
+    result = await db.execute(
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
+    )
     session = result.scalar_one_or_none()
 
     if not session:
@@ -209,6 +240,7 @@ async def test_gopro_connection(config: GoProConfig):
 @router.post("/gopro/connect")
 async def connect_gopro(
     config: GoProConfig,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Initialize GoPro connection and return stream URL."""
@@ -236,6 +268,7 @@ async def connect_gopro(
 
     session = Session(
         id=session_id,
+        profile_id=profile_id,
         name=f"GoPro Live - {config.resolution}@{config.framerate}fps",
         source_type=source_type,
         source_path=source_url,
@@ -258,10 +291,16 @@ async def connect_gopro(
 @router.get("/thumbnail/{session_id}")
 async def get_thumbnail(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get session thumbnail image."""
-    result = await db.execute(select(Session).where(Session.id == session_id))
+    result = await db.execute(
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
+    )
     session = result.scalar_one_or_none()
 
     if not session:

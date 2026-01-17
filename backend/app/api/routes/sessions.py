@@ -6,10 +6,11 @@ from datetime import datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.auth import get_current_profile_id
 from app.models.database import Session, Shot, Event, Foul, Game, KeyFrame
 from app.models.schemas import (
     SessionCreate, SessionResponse, SessionSummary, SessionUpdate
@@ -21,6 +22,7 @@ router = APIRouter()
 @router.post("/", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_session(
     session_data: SessionCreate,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new recording session."""
@@ -29,6 +31,7 @@ async def create_session(
 
     session = Session(
         id=session_id,
+        profile_id=profile_id,
         name=session_data.name or f"Session {now.strftime('%Y-%m-%d %H:%M')}",
         source_type=session_data.source_type,
         source_path=session_data.source_path,
@@ -48,10 +51,13 @@ async def list_sessions(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     status_filter: Optional[str] = Query(None, alias="status"),
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
-    """List all sessions with pagination."""
-    query = select(Session).order_by(Session.created_at.desc())
+    """List all sessions with pagination (filtered by profile ownership)."""
+    query = select(Session).where(
+        Session.profile_id == profile_id
+    ).order_by(Session.created_at.desc())
 
     if status_filter:
         query = query.where(Session.status == status_filter)
@@ -85,11 +91,15 @@ async def list_sessions(
 @router.get("/{session_id}", response_model=SessionResponse)
 async def get_session(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get detailed session information."""
     result = await db.execute(
-        select(Session).where(Session.id == session_id)
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
     )
     session = result.scalar_one_or_none()
 
@@ -106,11 +116,15 @@ async def get_session(
 async def update_session(
     session_id: str,
     updates: SessionUpdate,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Update session fields."""
     result = await db.execute(
-        select(Session).where(Session.id == session_id)
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
     )
     session = result.scalar_one_or_none()
 
@@ -140,11 +154,15 @@ async def update_session(
 @router.post("/{session_id}/start", response_model=SessionResponse)
 async def start_session(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Start recording a session."""
     result = await db.execute(
-        select(Session).where(Session.id == session_id)
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
     )
     session = result.scalar_one_or_none()
 
@@ -166,11 +184,15 @@ async def start_session(
 @router.post("/{session_id}/stop", response_model=SessionResponse)
 async def stop_session(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Stop recording a session."""
     result = await db.execute(
-        select(Session).where(Session.id == session_id)
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
     )
     session = result.scalar_one_or_none()
 
@@ -192,11 +214,15 @@ async def stop_session(
 @router.delete("/{session_id}")
 async def delete_session(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Delete a session and all related data."""
     result = await db.execute(
-        select(Session).where(Session.id == session_id)
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
     )
     session = result.scalar_one_or_none()
 
@@ -216,11 +242,15 @@ async def delete_session(
 @router.get("/{session_id}/stats")
 async def get_session_stats(
     session_id: str,
+    profile_id: str = Depends(get_current_profile_id),
     db: AsyncSession = Depends(get_db)
 ):
     """Get detailed statistics for a session."""
     result = await db.execute(
-        select(Session).where(Session.id == session_id)
+        select(Session).where(
+            Session.id == session_id,
+            Session.profile_id == profile_id
+        )
     )
     session = result.scalar_one_or_none()
 
@@ -230,23 +260,21 @@ async def get_session_stats(
             detail="Session not found"
         )
 
-    # Count related records
-    shots_result = await db.execute(
-        select(Shot).where(Shot.session_id == session_id)
+    # Use SQL COUNT instead of loading all records into memory
+    shots_count = await db.scalar(
+        select(func.count()).select_from(Shot).where(Shot.session_id == session_id)
     )
-    shots = shots_result.scalars().all()
 
-    events_result = await db.execute(
-        select(Event).where(Event.session_id == session_id)
+    events_count = await db.scalar(
+        select(func.count()).select_from(Event).where(Event.session_id == session_id)
     )
-    events_count = len(events_result.scalars().all())
 
     return {
         "session_id": session_id,
-        "total_shots": len(shots),
+        "total_shots": shots_count or 0,
         "total_pocketed": session.total_pocketed,
         "total_fouls": session.total_fouls,
-        "total_events": events_count,
+        "total_events": events_count or 0,
         "gemini_cost_usd": session.gemini_cost_usd,
         "duration_ms": session.video_duration_ms,
     }

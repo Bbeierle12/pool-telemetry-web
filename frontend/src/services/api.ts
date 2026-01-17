@@ -57,16 +57,30 @@ export function getApiBaseUrl(): string {
   return currentBaseUrl
 }
 
-// Get WebSocket URL based on current API URL
+// Get WebSocket URL based on current API URL (includes auth token)
 export function getWebSocketUrl(path: string): string {
+  // Get auth token from localStorage
+  let tokenParam = ''
+  const stored = localStorage.getItem('pool-telemetry-auth')
+  if (stored) {
+    try {
+      const { state } = JSON.parse(stored)
+      if (state?.token) {
+        tokenParam = `?token=${encodeURIComponent(state.token)}`
+      }
+    } catch {
+      // Ignore parse errors
+    }
+  }
+
   if (currentBaseUrl.startsWith('/')) {
     // Relative URL - construct from window location
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${window.location.host}${path}`
+    return `${protocol}//${window.location.host}${path}${tokenParam}`
   }
   // Absolute URL - convert http(s) to ws(s)
   const wsUrl = currentBaseUrl.replace(/^http/, 'ws').replace('/api', '')
-  return `${wsUrl}${path}`
+  return `${wsUrl}${path}${tokenParam}`
 }
 
 // Add auth token to requests

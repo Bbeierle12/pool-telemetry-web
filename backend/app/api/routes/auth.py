@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database import get_db
+from app.core.auth import require_admin
 from app.core.rate_limit import limiter, RATE_LIMIT_AUTH, RATE_LIMIT_DEFAULT
 from app.models.database import Profile
 from app.models.schemas import (
@@ -147,9 +148,17 @@ async def login(
 @router.delete("/profiles/{profile_id}")
 async def delete_profile(
     profile_id: str,
+    admin: Profile = Depends(require_admin),
     db: AsyncSession = Depends(get_db)
 ):
-    """Delete a profile (admin only in production)."""
+    """Delete a profile (admin only)."""
+    # Prevent self-deletion
+    if profile_id == admin.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own profile"
+        )
+
     result = await db.execute(
         select(Profile).where(Profile.id == profile_id)
     )
