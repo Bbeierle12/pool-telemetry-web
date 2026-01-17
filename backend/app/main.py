@@ -14,7 +14,7 @@ from app.config import settings
 from app.core.database import init_db, close_db
 from app.core.rate_limit import limiter
 from app.api.routes import sessions, video, events, export, auth, analysis, coaching, settings as settings_routes
-from app.api.websockets import events as ws_events
+from app.api.websockets import events as ws_events, video as ws_video
 
 # Ensure data directories exist before app starts
 settings.data_directory.mkdir(parents=True, exist_ok=True)
@@ -68,6 +68,7 @@ app.include_router(settings_routes.router, prefix="/api/settings", tags=["Settin
 
 # WebSocket routes
 app.include_router(ws_events.router, prefix="/ws", tags=["WebSocket"])
+app.include_router(ws_video.router, prefix="/ws", tags=["WebSocket Video"])
 
 # Static files for HLS streaming
 app.mount("/hls", StaticFiles(directory=str(settings.data_directory / "hls")), name="hls")

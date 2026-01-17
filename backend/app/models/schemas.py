@@ -162,6 +162,7 @@ class GoProConfig(BaseModel):
     resolution: str = "1080p"
     framerate: int = 30
     stabilization: bool = True
+    device_index: Optional[int] = 0  # USB camera device index
 
 
 class VideoUploadResponse(BaseModel):

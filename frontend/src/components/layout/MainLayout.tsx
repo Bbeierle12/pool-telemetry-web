@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useSessionStore } from '../../store/sessionStore'
 import { useAuthStore } from '../../store/authStore'
 import { useWebSocket } from '../../hooks/useWebSocket'
@@ -9,9 +9,15 @@ import MetricsPanel from '../telemetry/MetricsPanel'
 import Controls from '../session/Controls'
 
 export default function MainLayout() {
-  const { sessionId, isRecording, setRuntime } = useSessionStore()
+  const { sessionId, isRecording, runtime, setRuntime } = useSessionStore()
   const { profile, logout } = useAuthStore()
   const { isConnected } = useWebSocket({ sessionId })
+  const runtimeRef = useRef(runtime)
+
+  // Keep ref in sync with store
+  useEffect(() => {
+    runtimeRef.current = runtime
+  }, [runtime])
 
   // Runtime timer
   useEffect(() => {
@@ -19,7 +25,8 @@ export default function MainLayout() {
 
     if (isRecording) {
       interval = window.setInterval(() => {
-        setRuntime((prev) => prev + 1)
+        runtimeRef.current += 1
+        setRuntime(runtimeRef.current)
       }, 1000)
     }
 

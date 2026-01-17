@@ -30,6 +30,15 @@ let backendManager: BackendManager | null = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
+function getIconPath(): string {
+  if (app.isPackaged) {
+    // In production, icon is in the resources directory
+    return path.join(process.resourcesPath, 'icon.ico');
+  }
+  // In development with webpack, __dirname is .webpack/main
+  return path.join(__dirname, '..', '..', 'resources', 'icon.ico');
+}
+
 function getBackendUrl(): string {
   const mode = store.get('backendMode');
   if (mode === 'external') {
@@ -48,7 +57,7 @@ async function createWindow(): Promise<void> {
     y: bounds.y,
     minWidth: 1024,
     minHeight: 768,
-    icon: path.join(__dirname, '..', '..', 'resources', 'icon.ico'),
+    icon: getIconPath(),
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       contextIsolation: true,
@@ -150,7 +159,12 @@ async function startBackend(): Promise<void> {
   const mode = store.get('backendMode');
   if (mode === 'bundled') {
     backendManager = new BackendManager(isDev);
-    await backendManager.start();
+    try {
+      await backendManager.start();
+    } catch (error) {
+      console.error('Failed to start backend:', error);
+      // Continue without backend - app will show connection error
+    }
   }
 }
 

@@ -94,6 +94,7 @@ export interface GoProConfig {
   resolution: string
   framerate: number
   stabilization: boolean
+  device_index?: number  // USB camera device index
 }
 
 // WebSocket message types

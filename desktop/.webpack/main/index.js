@@ -13372,6 +13372,14 @@ const store = new electron_store_1.default({
 let mainWindow = null;
 let backendManager = null;
 const isDev =  true || 0;
+function getIconPath() {
+    if (electron_1.app.isPackaged) {
+        // In production, icon is in the resources directory
+        return path.join(process.resourcesPath, 'icon.ico');
+    }
+    // In development with webpack, __dirname is .webpack/main
+    return path.join(__dirname, '..', '..', 'resources', 'icon.ico');
+}
 function getBackendUrl() {
     const mode = store.get('backendMode');
     if (mode === 'external') {
@@ -13388,7 +13396,7 @@ async function createWindow() {
         y: bounds.y,
         minWidth: 1024,
         minHeight: 768,
-        icon: path.join(__dirname, '..', '..', 'resources', 'icon.ico'),
+        icon: getIconPath(),
         webPreferences: {
             preload: 'C:\\Users\\Bbeie\\pool-telemetry-web\\pool-telemetry-web\\desktop\\.webpack\\renderer\\main_window\\preload.js',
             contextIsolation: true,
@@ -13479,7 +13487,13 @@ async function startBackend() {
     const mode = store.get('backendMode');
     if (mode === 'bundled') {
         backendManager = new backend_1.BackendManager(isDev);
-        await backendManager.start();
+        try {
+            await backendManager.start();
+        }
+        catch (error) {
+            console.error('Failed to start backend:', error);
+            // Continue without backend - app will show connection error
+        }
     }
 }
 // App lifecycle

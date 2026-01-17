@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { GoProConfig } from '../../types'
+import { getApiBaseUrl } from '../../services/api'
 
 interface GoProConnectProps {
   onConnect: (config: GoProConfig) => void
@@ -24,6 +25,7 @@ export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) 
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [testMessage, setTestMessage] = useState('')
   const [detectedDevices, setDetectedDevices] = useState<TestResult['devices']>([])
+  const [selectedDeviceIndex, setSelectedDeviceIndex] = useState<number>(0)
 
   const handleTest = async () => {
     setTestStatus('testing')
@@ -31,7 +33,7 @@ export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) 
     setDetectedDevices([])
 
     try {
-      const response = await fetch('/api/video/gopro/test', {
+      const response = await fetch(`${getApiBaseUrl()}/video/gopro/test`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -50,8 +52,10 @@ export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) 
       if (result.success) {
         setTestStatus('success')
         setTestMessage(result.message)
-        if (result.devices) {
+        if (result.devices && result.devices.length > 0) {
           setDetectedDevices(result.devices)
+          // Auto-select first detected camera
+          setSelectedDeviceIndex(result.devices[0].index)
         }
       } else {
         setTestStatus('error')
@@ -72,6 +76,7 @@ export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) 
       resolution,
       framerate,
       stabilization,
+      device_index: connectionMode === 'usb' ? selectedDeviceIndex : undefined,
     })
   }
 
@@ -208,20 +213,29 @@ export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) 
             )}
           </div>
 
-          {/* Show detected USB cameras */}
-          {detectedDevices && detectedDevices.length > 0 && (
+          {/* Show detected USB cameras with selection */}
+          {detectedDevices && detectedDevices.length > 0 && connectionMode === 'usb' && (
             <div style={{
               backgroundColor: 'var(--bg-tertiary)',
               borderRadius: '4px',
               padding: '8px 12px',
               fontSize: '0.8rem',
             }}>
-              <div style={{ fontWeight: 600, marginBottom: '4px' }}>Detected Cameras:</div>
-              {detectedDevices.map((device) => (
-                <div key={device.index} style={{ color: 'var(--text-secondary)' }}>
-                  • Camera {device.index}: {device.resolution}
-                </div>
-              ))}
+              <div className="form-group" style={{ marginBottom: 0 }}>
+                <label className="form-label" style={{ fontSize: '0.8rem' }}>Select Camera</label>
+                <select
+                  value={selectedDeviceIndex}
+                  onChange={(e) => setSelectedDeviceIndex(parseInt(e.target.value))}
+                  style={{ fontSize: '0.8rem' }}
+                  aria-label="Select camera device"
+                >
+                  {detectedDevices.map((device) => (
+                    <option key={device.index} value={device.index}>
+                      Camera {device.index}: {device.resolution}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
         </div>

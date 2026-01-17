@@ -8,6 +8,9 @@ module.exports = {
     icon: path.join(__dirname, 'resources', 'icon'),
     name: 'Pool Telemetry',
     executableName: 'pool-telemetry',
+    extraResource: [
+      path.join(__dirname, 'resources', 'icon.ico'),
+    ],
   },
   rebuildConfig: {},
   makers: [

@@ -229,8 +229,9 @@ async def connect_gopro(
 
         source_type = "gopro_wifi"
     else:
-        # USB mode - would use device index
-        source_url = "device:0"
+        # USB mode - use device index from config
+        device_index = config.device_index if config.device_index is not None else 0
+        source_url = f"device:{device_index}"
         source_type = "gopro_usb"
 
     session = Session(
