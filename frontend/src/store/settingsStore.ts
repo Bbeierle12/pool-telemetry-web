@@ -253,7 +253,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     if (!checkIsElectron()) return
 
     try {
-      const settings = await window.electronAPI.getSettings()
+      const settings = await window.electronAPI!.getSettings()
       set({ desktopSettings: settings })
     } catch (error) {
       console.error('Failed to load desktop settings:', error)
@@ -264,8 +264,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     if (!checkIsElectron()) return
 
     try {
-      await window.electronAPI.setSettings(newSettings)
-      const settings = await window.electronAPI.getSettings()
+      await window.electronAPI!.setSettings(newSettings)
+      const settings = await window.electronAPI!.getSettings()
       set({ desktopSettings: settings })
     } catch (error) {
       console.error('Failed to save desktop settings:', error)
@@ -276,7 +276,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     if (!checkIsElectron()) return
 
     try {
-      const status = await window.electronAPI.getBackendStatus()
+      const status = await window.electronAPI!.getBackendStatus()
       set({ backendStatus: status.status })
     } catch (error) {
       console.error('Failed to get backend status:', error)
@@ -289,7 +289,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
     try {
       set({ backendStatus: 'starting' })
-      await window.electronAPI.restartBackend()
+      await window.electronAPI!.restartBackend()
       await get().refreshBackendStatus()
     } catch (error) {
       console.error('Failed to restart backend:', error)
@@ -299,7 +299,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   getBackendUrl: async () => {
     if (checkIsElectron()) {
-      return await window.electronAPI.getBackendUrl()
+      return await window.electronAPI!.getBackendUrl()
     }
     // In browser, use the default proxy or env variable
     return import.meta.env.VITE_API_URL || ''

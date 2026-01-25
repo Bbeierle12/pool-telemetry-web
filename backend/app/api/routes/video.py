@@ -16,7 +16,7 @@ from app.core.database import get_db, async_session
 from app.core.auth import get_current_profile_id
 from app.core.rate_limit import limiter, RATE_LIMIT_UPLOAD
 from app.models.database import Session
-from app.models.schemas import GoProConfig, VideoUploadResponse, StreamInfo
+from app.models.schemas import GoProConfig, NetworkCameraConfig, VideoUploadResponse, StreamInfo
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -288,6 +288,116 @@ async def connect_gopro(
     }
 
 
+@router.post("/network-camera/test")
+async def test_network_camera(config: NetworkCameraConfig):
+    """Test network camera connection (iPhone apps, IP cameras, etc.)."""
+    import socket
+    import cv2
+
+    # Build stream URL
+    stream_url = f"{config.protocol}://{config.ip_address}:{config.port}{config.path}"
+
+    # Quick socket test first
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3)
+        result = sock.connect_ex((config.ip_address, config.port))
+        sock.close()
+
+        if result != 0:
+            return {
+                "success": False,
+                "message": f"Cannot reach {config.ip_address}:{config.port}. Is the camera app running?",
+            }
+    except socket.timeout:
+        return {"success": False, "message": "Connection timed out. Check IP address."}
+    except Exception as e:
+        return {"success": False, "message": f"Connection error: {str(e)}"}
+
+    # Try to open stream with OpenCV
+    cap = cv2.VideoCapture(stream_url)
+    if cap.isOpened():
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        cap.release()
+        return {
+            "success": True,
+            "message": f"Connected: {width}x{height}",
+            "stream_url": stream_url,
+            "resolution": f"{width}x{height}",
+        }
+
+    cap.release()
+    return {
+        "success": False,
+        "message": "Host reachable but cannot read video stream. Check the URL path.",
+    }
+
+
+@router.post("/network-camera/connect")
+async def connect_network_camera(
+    config: NetworkCameraConfig,
+    profile_id: str = Depends(get_current_profile_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Connect to network camera and start session."""
+    session_id = uuid.uuid4().hex
+
+    # Build stream URL
+    stream_url = f"{config.protocol}://{config.ip_address}:{config.port}{config.path}"
+
+    session = Session(
+        id=session_id,
+        profile_id=profile_id,
+        name=config.name or f"Network Camera - {config.resolution}",
+        source_type="network_camera",
+        source_path=stream_url,
+        video_resolution=config.resolution,
+        video_framerate=config.framerate,
+        status="pending",
+    )
+
+    db.add(session)
+    await db.commit()
+
+    return {
+        "session_id": session_id,
+        "source_url": stream_url,
+        "stream_url": f"/ws/video/{session_id}",
+        "status": "ready",
+    }
+
+
+@router.post("/mobile-camera/create")
+async def create_mobile_camera_session(
+    profile_id: str = Depends(get_current_profile_id),
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a session for mobile camera streaming.
+
+    The mobile device will connect as producer and send frames,
+    while the desktop connects as consumer to receive frames.
+    """
+    session_id = uuid.uuid4().hex
+
+    session = Session(
+        id=session_id,
+        profile_id=profile_id,
+        name="Mobile Camera",
+        source_type="mobile_camera",
+        source_path="mobile",
+        status="pending",
+    )
+    db.add(session)
+    await db.commit()
+
+    return {
+        "session_id": session_id,
+        "stream_url": f"/ws/video/{session_id}",
+        "status": "waiting_for_mobile",
+    }
+
+
 @router.get("/thumbnail/{session_id}")
 async def get_thumbnail(
     session_id: str,
@@ -313,3 +423,77 @@ async def get_thumbnail(
         raise HTTPException(status_code=404, detail="Thumbnail not available")
 
     return FileResponse(thumbnail_path, media_type="image/jpeg")
+
+
+@router.get("/network-info")
+async def get_network_info():
+    """Get server network interfaces for mobile camera QR code generation.
+
+    Returns list of network IPs that mobile devices can use to connect.
+    No authentication required - this is public info needed before login.
+    """
+    import socket
+    import netifaces
+
+    interfaces = []
+
+    try:
+        # Get all network interfaces
+        for iface in netifaces.interfaces():
+            addrs = netifaces.ifaddresses(iface)
+            # Get IPv4 addresses
+            if netifaces.AF_INET in addrs:
+                for addr in addrs[netifaces.AF_INET]:
+                    ip = addr.get('addr')
+                    if ip and not ip.startswith('127.'):
+                        # Try to determine if it's a useful interface
+                        name = iface
+                        # Common interface naming patterns
+                        if 'eth' in iface.lower() or 'en' in iface.lower():
+                            name = f"Ethernet ({ip})"
+                        elif 'wlan' in iface.lower() or 'wi' in iface.lower():
+                            name = f"WiFi ({ip})"
+                        elif 'vbox' in iface.lower() or 'vmware' in iface.lower():
+                            name = f"Virtual ({ip})"
+                        else:
+                            name = f"{iface} ({ip})"
+
+                        interfaces.append({
+                            "ip": ip,
+                            "name": name,
+                            "interface": iface,
+                        })
+    except ImportError:
+        # netifaces not installed, use fallback
+        try:
+            hostname = socket.gethostname()
+            ip = socket.gethostbyname(hostname)
+            if ip and not ip.startswith('127.'):
+                interfaces.append({
+                    "ip": ip,
+                    "name": f"Default ({ip})",
+                    "interface": "default",
+                })
+        except Exception:
+            pass
+    except Exception as e:
+        logger.warning(f"Failed to get network interfaces: {e}")
+
+    # Sort: prefer WiFi and Ethernet over virtual interfaces
+    def sort_key(iface):
+        ip = iface['ip']
+        name = iface['name'].lower()
+        if 'virtual' in name or ip.startswith('192.168.56'):  # VirtualBox
+            return 2
+        if 'wifi' in name or 'wlan' in name:
+            return 0
+        if 'ethernet' in name or 'eth' in name:
+            return 1
+        return 1
+
+    interfaces.sort(key=sort_key)
+
+    return {
+        "interfaces": interfaces,
+        "port": 5175,  # Vite dev server port
+    }

@@ -2,7 +2,10 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import Hls from 'hls.js'
 import { useSessionStore } from '../../store/sessionStore'
 import { videoApi, sessionsApi, getWebSocketUrl } from '../../services/api'
+import type { NetworkCameraConfig } from '../../types'
 import GoProConnect from './GoProConnect'
+import NetworkCameraConnect from './NetworkCameraConnect'
+import MobileCameraSetup from './MobileCameraSetup'
 
 export default function VideoPanel() {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -10,6 +13,8 @@ export default function VideoPanel() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const wsRef = useRef<WebSocket | null>(null)
   const [showGoProDialog, setShowGoProDialog] = useState(false)
+  const [showNetworkCameraDialog, setShowNetworkCameraDialog] = useState(false)
+  const [showMobileCameraDialog, setShowMobileCameraDialog] = useState(false)
   const [streamUrl, setStreamUrl] = useState<string | null>(null)
   const [wsConnected, setWsConnected] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -61,7 +66,8 @@ export default function VideoPanel() {
   }, [])
 
   // Connect to video WebSocket for live streaming
-  const connectVideoWebSocket = useCallback((wsSessionId: string) => {
+  // isMobileCamera: if true, register as consumer for mobile camera relay
+  const connectVideoWebSocket = useCallback((wsSessionId: string, isMobileCamera = false) => {
     if (wsRef.current) {
       wsRef.current.close()
     }
@@ -71,6 +77,10 @@ export default function VideoPanel() {
 
     ws.onopen = () => {
       console.log('Video WebSocket connected')
+      if (isMobileCamera) {
+        // Register as consumer for mobile camera session
+        ws.send(JSON.stringify({ type: 'register_consumer' }))
+      }
       setWsConnected(true)
       setRecording(true)
     }
@@ -88,6 +98,12 @@ export default function VideoPanel() {
           renderFrame(message.data)
         } else if (message.type === 'connected') {
           console.log('[VIDEO] Stream connected:', message)
+        } else if (message.type === 'registered') {
+          console.log('[VIDEO] Registered as:', message.role)
+        } else if (message.type === 'producer_connected') {
+          console.log('[VIDEO] Mobile camera connected')
+        } else if (message.type === 'producer_disconnected') {
+          console.log('[VIDEO] Mobile camera disconnected')
         } else if (message.type === 'error') {
           console.error('[VIDEO] Stream error:', message.message)
         }
@@ -177,6 +193,40 @@ export default function VideoPanel() {
       connectVideoWebSocket(response.session_id)
     } catch (error) {
       console.error('GoPro connection failed:', error)
+    }
+  }
+
+  const handleNetworkCameraConnect = async (config: NetworkCameraConfig) => {
+    try {
+      const response = await videoApi.connectNetworkCamera(config)
+      setSessionId(response.session_id)
+      setStreamUrl(null) // Using WebSocket for frames instead of HLS
+
+      const session = await sessionsApi.get(response.session_id)
+      setCurrentSession(session)
+      setShowNetworkCameraDialog(false)
+
+      // Connect to video WebSocket for live frames
+      connectVideoWebSocket(response.session_id)
+    } catch (error) {
+      console.error('Network camera connection failed:', error)
+    }
+  }
+
+  const handleMobileCameraConnect = async (mobileSessionId: string) => {
+    try {
+      setSessionId(mobileSessionId)
+      setStreamUrl(null) // Using WebSocket for frames
+      setShowMobileCameraDialog(false)
+
+      // Fetch session details
+      const session = await sessionsApi.get(mobileSessionId)
+      setCurrentSession(session)
+
+      // Connect as consumer to receive frames from mobile
+      connectVideoWebSocket(mobileSessionId, true)
+    } catch (error) {
+      console.error('Mobile camera connection failed:', error)
     }
   }
 
@@ -274,6 +324,12 @@ export default function VideoPanel() {
         <button onClick={() => setShowGoProDialog(true)}>
           Connect GoPro
         </button>
+        <button onClick={() => setShowNetworkCameraDialog(true)}>
+          Network Cam
+        </button>
+        <button onClick={() => setShowMobileCameraDialog(true)}>
+          Phone Camera
+        </button>
         <button
           className="btn-secondary"
           onClick={() => fileInputRef.current?.click()}
@@ -295,6 +351,22 @@ export default function VideoPanel() {
         <GoProConnect
           onConnect={handleGoProConnect}
           onClose={() => setShowGoProDialog(false)}
+        />
+      )}
+
+      {/* Network Camera Dialog */}
+      {showNetworkCameraDialog && (
+        <NetworkCameraConnect
+          onConnect={handleNetworkCameraConnect}
+          onClose={() => setShowNetworkCameraDialog(false)}
+        />
+      )}
+
+      {/* Mobile Camera Dialog */}
+      {showMobileCameraDialog && (
+        <MobileCameraSetup
+          onConnect={handleMobileCameraConnect}
+          onClose={() => setShowMobileCameraDialog(false)}
         />
       )}
     </div>

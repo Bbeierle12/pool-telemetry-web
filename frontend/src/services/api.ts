@@ -6,6 +6,7 @@ import type {
   TokenResponse,
   StreamInfo,
   GoProConfig,
+  NetworkCameraConfig,
   ExportResponse,
   ExportFormat,
 } from '../types'
@@ -155,6 +156,18 @@ export const videoApi = {
 
   connectGoPro: (config: GoProConfig) =>
     api.post('/video/gopro/connect', config).then((res) => res.data),
+
+  testNetworkCamera: (config: NetworkCameraConfig) =>
+    api.post('/video/network-camera/test', config).then((res) => res.data),
+
+  connectNetworkCamera: (config: NetworkCameraConfig) =>
+    api.post('/video/network-camera/connect', config).then((res) => res.data),
+
+  createMobileCameraSession: () =>
+    api.post('/video/mobile-camera/create').then((res) => res.data),
+
+  getNetworkInfo: () =>
+    api.get('/video/network-info').then((res) => res.data),
 
   getThumbnail: (sessionId: string) =>
     `${currentBaseUrl}/video/thumbnail/${sessionId}`,

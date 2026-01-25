@@ -72,7 +72,7 @@ export default function Controls() {
   const canPause = isRecording
   const canStop = isRecording || isPaused
   const canExport = sessionId && currentSession?.status === 'completed'
-  const canAnalyze = sessionId && currentSession?.total_shots > 0
+  const canAnalyze = sessionId && (currentSession?.total_shots ?? 0) > 0
 
   return (
     <div className="group-box">

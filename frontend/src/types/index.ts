@@ -97,6 +97,16 @@ export interface GoProConfig {
   device_index?: number  // USB camera device index
 }
 
+export interface NetworkCameraConfig {
+  name: string
+  ip_address: string
+  port: number
+  protocol: 'http' | 'rtsp' | 'mjpeg'
+  path: string
+  resolution: string
+  framerate: number
+}
+
 // WebSocket message types
 export interface WSMessage {
   type: string

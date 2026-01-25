@@ -165,6 +165,17 @@ class GoProConfig(BaseModel):
     device_index: Optional[int] = 0  # USB camera device index
 
 
+class NetworkCameraConfig(BaseModel):
+    """Network camera connection settings (iPhone apps, IP cameras, etc.)."""
+    name: str = "Network Camera"
+    ip_address: str = Field(..., description="IP address of the camera")
+    port: int = 8080
+    protocol: str = "http"  # http, rtsp, mjpeg
+    path: str = "/video"  # Stream path
+    resolution: str = "1080p"
+    framerate: int = 30
+
+
 class VideoUploadResponse(BaseModel):
     """Response after video upload."""
     session_id: str

@@ -7,7 +7,7 @@ import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -27,20 +27,20 @@ _executor = ThreadPoolExecutor(max_workers=4)
 
 
 class CameraManager:
-    """Manage USB camera capture and streaming."""
+    """Manage USB camera and network stream capture."""
 
     def __init__(self):
         self.active_cameras: Dict[str, cv2.VideoCapture] = {}
         self._lock = asyncio.Lock()
 
-    def _open_camera(
+    def _open_usb_camera(
         self,
         device_index: int,
         resolution: str,
         framerate: int
     ) -> Optional[cv2.VideoCapture]:
-        """Open camera (runs in thread pool)."""
-        print(f"[VIDEO] Attempting to open camera {device_index}")
+        """Open USB camera (runs in thread pool)."""
+        print(f"[VIDEO] Attempting to open USB camera {device_index}")
 
         # Try different backends
         backends = [
@@ -94,26 +94,97 @@ class CameraManager:
 
         return cap
 
+    def _open_network_stream(
+        self,
+        stream_url: str,
+        resolution: str,
+        framerate: int
+    ) -> Optional[cv2.VideoCapture]:
+        """Open network stream (UDP, RTSP, HTTP) - runs in thread pool."""
+        print(f"[VIDEO] Attempting to open network stream: {stream_url}")
+
+        # Set environment variables for better UDP/RTSP handling
+        import os
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp|buffer_size;65536"
+
+        # For UDP streams, OpenCV needs specific format
+        # GoPro Hero 7 uses UDP multicast
+        cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
+
+        if not cap or not cap.isOpened():
+            print(f"[VIDEO] Failed to open stream with FFMPEG, trying default...")
+            cap = cv2.VideoCapture(stream_url)
+
+        if not cap or not cap.isOpened():
+            print(f"[VIDEO] Failed to open network stream: {stream_url}")
+            return None
+
+        # Set buffer size for lower latency
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+        # Read actual settings
+        actual_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        actual_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = cap.get(cv2.CAP_PROP_FPS)
+        print(f"[VIDEO] Network stream opened: {actual_w}x{actual_h} @ {actual_fps}fps")
+
+        # Test read a frame (with timeout for network streams)
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            print(f"[VIDEO] Test frame captured from stream: {frame.shape}")
+        else:
+            print(f"[VIDEO] WARNING: Test frame capture failed - stream may need time to start")
+
+        return cap
+
     async def start_capture(
         self,
         session_id: str,
-        device_index: int = 0,
+        source: str,
         resolution: str = "1080p",
         framerate: int = 30
     ) -> bool:
-        """Start capturing from a USB camera."""
+        """Start capturing from USB camera or network stream.
+
+        Args:
+            session_id: Unique session identifier
+            source: Either "device:N" for USB or a URL (udp://, rtsp://, http://)
+            resolution: Video resolution (720p, 1080p, etc.)
+            framerate: Target framerate
+        """
         async with self._lock:
             if session_id in self.active_cameras:
                 return True  # Already capturing
 
             loop = asyncio.get_event_loop()
-            cap = await loop.run_in_executor(
-                _executor,
-                self._open_camera,
-                device_index,
-                resolution,
-                framerate
-            )
+
+            # Determine source type
+            if source.startswith("device:"):
+                # USB camera
+                try:
+                    device_index = int(source.split(":")[1])
+                except (IndexError, ValueError):
+                    device_index = 0
+
+                cap = await loop.run_in_executor(
+                    _executor,
+                    self._open_usb_camera,
+                    device_index,
+                    resolution,
+                    framerate
+                )
+            elif source.startswith(("udp://", "rtsp://", "http://", "https://")):
+                # Network stream
+                cap = await loop.run_in_executor(
+                    _executor,
+                    self._open_network_stream,
+                    source,
+                    resolution,
+                    framerate
+                )
+            else:
+                print(f"[VIDEO] Unknown source type: {source}")
+                return False
 
             if not cap:
                 return False
@@ -168,6 +239,34 @@ class CameraManager:
 camera_manager = CameraManager()
 
 
+class MobileVideoSession:
+    """Track connected clients for a mobile camera video session."""
+
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        self.producer: Optional[WebSocket] = None
+        self.consumers: List[WebSocket] = []
+        self.frame_count = 0
+
+    async def broadcast_to_consumers(self, message: dict):
+        """Send message to all connected consumers."""
+        disconnected = []
+        for consumer in self.consumers:
+            try:
+                await consumer.send_json(message)
+            except Exception:
+                disconnected.append(consumer)
+
+        # Remove disconnected consumers
+        for ws in disconnected:
+            if ws in self.consumers:
+                self.consumers.remove(ws)
+
+
+# Global mobile video sessions
+mobile_video_sessions: Dict[str, MobileVideoSession] = {}
+
+
 async def update_session_status(session_id: str, status: str):
     """Update session status in database."""
     async with async_session() as db:
@@ -197,6 +296,132 @@ async def get_session_config(session_id: str, profile_id: str) -> Optional[dict]
     return None
 
 
+async def handle_mobile_camera_session(
+    websocket: WebSocket,
+    session_id: str,
+    config: dict
+):
+    """Handle mobile camera session - relay frames from mobile producer to desktop consumers."""
+    await websocket.accept()
+
+    # Get or create video session
+    if session_id not in mobile_video_sessions:
+        mobile_video_sessions[session_id] = MobileVideoSession(session_id)
+
+    vs = mobile_video_sessions[session_id]
+    is_producer = False
+
+    try:
+        # Wait for role identification message (with timeout)
+        try:
+            role_msg = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Timeout waiting for role registration"
+            })
+            return
+
+        if role_msg.get("type") == "register_producer":
+            # Mobile client - becomes the frame producer
+            if vs.producer is not None:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "Producer already connected. Only one mobile device allowed."
+                })
+                return
+
+            vs.producer = websocket
+            is_producer = True
+            print(f"[MOBILE] Producer registered for session {session_id}")
+
+            await websocket.send_json({
+                "type": "registered",
+                "role": "producer",
+                "session_id": session_id,
+            })
+
+            # Notify existing consumers that producer is now connected
+            await vs.broadcast_to_consumers({
+                "type": "producer_connected",
+                "timestamp": datetime.utcnow().isoformat(),
+            })
+
+            # Update session status
+            await update_session_status(session_id, "recording")
+
+            # Frame relay loop - receive frames from producer and broadcast to consumers
+            while True:
+                message = await websocket.receive_json()
+
+                if message.get("type") == "frame":
+                    vs.frame_count += 1
+                    if vs.frame_count == 1 or vs.frame_count % 100 == 0:
+                        print(f"[MOBILE] Relaying frame {vs.frame_count} to {len(vs.consumers)} consumers")
+
+                    # Relay frame to all consumers
+                    await vs.broadcast_to_consumers(message)
+
+                elif message.get("type") == "stop":
+                    break
+
+        elif role_msg.get("type") == "register_consumer":
+            # Desktop client - becomes a frame consumer
+            vs.consumers.append(websocket)
+            print(f"[MOBILE] Consumer registered for session {session_id}, total: {len(vs.consumers)}")
+
+            await websocket.send_json({
+                "type": "registered",
+                "role": "consumer",
+                "session_id": session_id,
+                "producer_connected": vs.producer is not None,
+                "frame_count": vs.frame_count,
+            })
+
+            # Keep connection alive and wait for disconnect or messages
+            while True:
+                try:
+                    message = await websocket.receive_json()
+                    if message.get("type") == "stop":
+                        break
+                except Exception:
+                    break
+
+        else:
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Unknown role type: {role_msg.get('type')}. Expected 'register_producer' or 'register_consumer'"
+            })
+
+    except WebSocketDisconnect:
+        print(f"[MOBILE] WebSocket disconnected (producer={is_producer})")
+    except Exception as e:
+        print(f"[MOBILE] Error in mobile camera session: {e}")
+    finally:
+        # Cleanup
+        if is_producer:
+            vs.producer = None
+            print(f"[MOBILE] Producer disconnected, notifying {len(vs.consumers)} consumers")
+            await vs.broadcast_to_consumers({
+                "type": "producer_disconnected",
+                "timestamp": datetime.utcnow().isoformat(),
+            })
+            await update_session_status(session_id, "completed")
+        else:
+            if websocket in vs.consumers:
+                vs.consumers.remove(websocket)
+            print(f"[MOBILE] Consumer disconnected, remaining: {len(vs.consumers)}")
+
+        # Clean up session if no one is connected
+        if vs.producer is None and len(vs.consumers) == 0:
+            if session_id in mobile_video_sessions:
+                del mobile_video_sessions[session_id]
+                print(f"[MOBILE] Session {session_id} cleaned up")
+
+
 @router.websocket("/video/{session_id}")
 async def video_websocket(
     websocket: WebSocket,
@@ -207,7 +432,8 @@ async def video_websocket(
     WebSocket endpoint for live video streaming.
 
     Requires authentication via token query parameter.
-    Sends JPEG frames as base64-encoded strings.
+    For mobile_camera sessions: Supports producer/consumer frame relay.
+    For other sessions: Captures from camera and sends frames.
     """
     # Verify authentication before accepting connection
     if not token:
@@ -225,24 +451,28 @@ async def video_websocket(
         await websocket.close(code=4004, reason="Session not found")
         return
 
-    # Now accept the connection
+    # Route based on source type
+    source_type = config.get("source_type", "gopro_usb")
+
+    if source_type == "mobile_camera":
+        # Handle mobile camera sessions with producer/consumer pattern
+        await handle_mobile_camera_session(websocket, session_id, config)
+        return
+
+    # Now accept the connection for regular camera capture
     await websocket.accept()
 
-    # Parse device index from source_path (e.g., "device:0")
-    device_index = 0
-    if config["source_path"] and config["source_path"].startswith("device:"):
-        try:
-            device_index = int(config["source_path"].split(":")[1])
-        except (IndexError, ValueError):
-            pass
-
-    # Start camera capture
+    # Get source path - can be "device:N" for USB or a URL for WiFi streams
+    source_path = config.get("source_path") or "device:0"
     resolution = config.get("resolution", "1080p")
     framerate = config.get("framerate", 30) or 30
 
+    print(f"[VIDEO] Starting capture - source: {source_path}, type: {source_type}")
+
+    # Start capture (works for both USB and network streams)
     success = await camera_manager.start_capture(
         session_id,
-        device_index=device_index,
+        source=source_path,
         resolution=resolution,
         framerate=framerate
     )
@@ -250,7 +480,7 @@ async def video_websocket(
     if not success:
         await websocket.send_json({
             "type": "error",
-            "message": f"Failed to open camera device {device_index}"
+            "message": f"Failed to open video source: {source_path}"
         })
         await websocket.close()
         return
@@ -262,7 +492,8 @@ async def video_websocket(
     await websocket.send_json({
         "type": "connected",
         "session_id": session_id,
-        "device_index": device_index,
+        "source": source_path,
+        "source_type": source_type,
         "resolution": resolution,
         "framerate": framerate,
         "timestamp": datetime.utcnow().isoformat(),

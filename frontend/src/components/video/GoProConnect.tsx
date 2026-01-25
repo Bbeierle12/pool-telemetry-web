@@ -17,7 +17,7 @@ interface TestResult {
 export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) {
   const [connectionMode, setConnectionMode] = useState<'usb' | 'wifi'>('wifi')
   const [wifiIp, setWifiIp] = useState('10.5.5.9')
-  const [wifiPort, setWifiPort] = useState(8080)
+  const [wifiPort, setWifiPort] = useState(8554)
   const [protocol, setProtocol] = useState<'udp' | 'http' | 'rtsp'>('udp')
   const [resolution, setResolution] = useState('1080p')
   const [framerate, setFramerate] = useState(30)
@@ -103,16 +103,35 @@ export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) 
         {/* WiFi Settings */}
         {connectionMode === 'wifi' && (
           <>
+            <div style={{
+              backgroundColor: 'var(--bg-tertiary)',
+              borderRadius: '6px',
+              padding: '10px 12px',
+              marginBottom: '12px',
+              fontSize: '0.8rem',
+              color: 'var(--text-secondary)',
+            }}>
+              <strong>WiFi Streaming Setup:</strong>
+              <ol style={{ margin: '6px 0 0 0', paddingLeft: '18px' }}>
+                <li>On GoPro: Connections → Connect Device → GoPro App</li>
+                <li>Connect your computer to the GoPro WiFi network</li>
+                <li>Use IP: 10.5.5.9, Port: 8554, Protocol: UDP</li>
+              </ol>
+              <div style={{ marginTop: '8px', fontStyle: 'italic' }}>
+                Note: GoPro Max/Hero 8+ support USB Webcam mode (easier setup)
+              </div>
+            </div>
+
             <div className="form-group">
               <label className="form-label">IP Address</label>
               <input
                 type="text"
                 value={wifiIp}
                 onChange={(e) => setWifiIp(e.target.value)}
-                placeholder="10.5.5.9 or 172.2x.1xx.51"
+                placeholder="10.5.5.9"
               />
               <div className="form-hint">
-                Default GoPro IP is 10.5.5.9 or check your GoPro's WiFi settings
+                Default GoPro IP is 10.5.5.9 when connected to GoPro's WiFi
               </div>
             </div>
 
@@ -124,6 +143,7 @@ export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) 
                   value={wifiPort}
                   onChange={(e) => setWifiPort(parseInt(e.target.value))}
                 />
+                <div className="form-hint">8554 for UDP, 8080 for HTTP</div>
               </div>
 
               <div className="form-group">
@@ -132,7 +152,7 @@ export default function GoProConnect({ onConnect, onClose }: GoProConnectProps) 
                   value={protocol}
                   onChange={(e) => setProtocol(e.target.value as 'udp' | 'http' | 'rtsp')}
                 >
-                  <option value="udp">UDP Stream</option>
+                  <option value="udp">UDP Stream (Hero 7+)</option>
                   <option value="http">HTTP Preview</option>
                   <option value="rtsp">RTSP</option>
                 </select>
