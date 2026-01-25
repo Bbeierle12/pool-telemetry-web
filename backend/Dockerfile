@@ -6,7 +6,7 @@ WORKDIR /app
 # Install system dependencies for OpenCV and FFmpeg
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libgl1-mesa-glx \
+    libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -23,5 +23,5 @@ RUN mkdir -p /app/data
 # Expose port
 EXPOSE 8000
 
-# Run with uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run with uvicorn (Railway provides PORT environment variable)
+CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
