@@ -3,6 +3,6 @@ build:
   buildCommand: cd backend && pip install --upgrade pip && pip install -r requirements.txt
 
 deploy:
-  startCommand: sh -c "cd backend && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+  startCommand: /app/start.sh
   restartPolicyType: ON_FAILURE
   restartPolicyMaxRetries: 10

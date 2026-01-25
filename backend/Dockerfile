@@ -17,11 +17,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY app/ ./app/
 
+# Copy startup script
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
 # Create data directory
 RUN mkdir -p /app/data
 
 # Expose port
 EXPOSE 8000
 
-# Run with uvicorn (Railway provides PORT environment variable)
-CMD sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"
+# Run startup script
+CMD ["/app/start.sh"]
