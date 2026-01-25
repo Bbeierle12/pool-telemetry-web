@@ -1,15 +1,8 @@
-services:
-  backend:
-    source: backend
-    builder: NIXPACKS
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    variables:
-      SECRET_KEY: ddd9e4ff7936287603a19fef2ed56c710c9180d4ec6a738ddc625aeab567d539
-      ALLOWED_ORIGINS: https://frontend-mu-wheat.vercel.app
+build:
+  builder: NIXPACKS
+  buildCommand: cd backend && pip install --upgrade pip && pip install -r requirements.txt
 
-  database:
-    image: postgres:15
-    variables:
-      POSTGRES_DB: pooltelemetry
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${{POSTGRES_PASSWORD}}
+deploy:
+  startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+  restartPolicyType: ON_FAILURE
+  restartPolicyMaxRetries: 10
