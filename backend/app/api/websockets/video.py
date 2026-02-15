@@ -6,7 +6,7 @@ import base64
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
 import cv2
@@ -347,7 +347,7 @@ async def handle_mobile_camera_session(
             # Notify existing consumers that producer is now connected
             await vs.broadcast_to_consumers({
                 "type": "producer_connected",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             })
 
             # Update session status
@@ -407,7 +407,7 @@ async def handle_mobile_camera_session(
             print(f"[MOBILE] Producer disconnected, notifying {len(vs.consumers)} consumers")
             await vs.broadcast_to_consumers({
                 "type": "producer_disconnected",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             })
             await update_session_status(session_id, "completed")
         else:
@@ -496,7 +496,7 @@ async def video_websocket(
         "source_type": source_type,
         "resolution": resolution,
         "framerate": framerate,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
     # Calculate frame interval
@@ -523,7 +523,7 @@ async def video_websocket(
                 await websocket.send_json({
                     "type": "frame",
                     "data": frame_b64,
-                    "timestamp_ms": int(datetime.utcnow().timestamp() * 1000),
+                    "timestamp_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
                 })
             else:
                 failed_frames += 1

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     # Application
     app_name: str = "Pool Telemetry"
     debug: bool = False
-    secret_key: str = Field(default="change-me-in-production")
+    secret_key: str = Field(..., description="Required. Generate with: openssl rand -hex 32")
 
     # Database - Railway provides DATABASE_URL, we need to convert for async
     database_url: str = Field(default="sqlite+aiosqlite:///./data/pool_telemetry.db")
