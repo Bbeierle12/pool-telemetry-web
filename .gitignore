@@ -9,6 +9,8 @@ venv/
 dist/
 build/
 *.egg-info/
+desktop/.webpack/
+*.js.map
 
 # IDE
 .idea/

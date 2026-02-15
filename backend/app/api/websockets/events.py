@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, Set
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -114,7 +114,7 @@ async def events_websocket(
     await websocket.send_json({
         "type": "connected",
         "session_id": session_id,
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
     try:
@@ -151,7 +151,7 @@ async def broadcast_ball_update(session_id: str, balls: list):
     """Broadcast ball position updates."""
     await manager.broadcast(session_id, {
         "type": "ball_update",
-        "timestamp_ms": int(datetime.utcnow().timestamp() * 1000),
+        "timestamp_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
         "balls": balls,
     })
 
@@ -160,7 +160,7 @@ async def broadcast_event(session_id: str, event_type: str, data: dict):
     """Broadcast a game event."""
     await manager.broadcast(session_id, {
         "type": event_type,
-        "timestamp_ms": int(datetime.utcnow().timestamp() * 1000),
+        "timestamp_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
         "data": data,
     })
 
@@ -169,7 +169,7 @@ async def broadcast_shot(session_id: str, shot_data: dict):
     """Broadcast shot detected."""
     await manager.broadcast(session_id, {
         "type": "shot",
-        "timestamp_ms": int(datetime.utcnow().timestamp() * 1000),
+        "timestamp_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
         "shot": shot_data,
     })
 
@@ -178,7 +178,7 @@ async def broadcast_pocket(session_id: str, ball_name: str, pocket_id: str):
     """Broadcast ball pocketed."""
     await manager.broadcast(session_id, {
         "type": "pocket",
-        "timestamp_ms": int(datetime.utcnow().timestamp() * 1000),
+        "timestamp_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
         "ball": ball_name,
         "pocket": pocket_id,
     })
@@ -188,7 +188,7 @@ async def broadcast_foul(session_id: str, foul_type: str, details: dict):
     """Broadcast foul detected."""
     await manager.broadcast(session_id, {
         "type": "foul",
-        "timestamp_ms": int(datetime.utcnow().timestamp() * 1000),
+        "timestamp_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
         "foul_type": foul_type,
         "details": details,
     })
@@ -198,7 +198,7 @@ async def broadcast_status(session_id: str, status: str, message: str = None):
     """Broadcast session status change."""
     await manager.broadcast(session_id, {
         "type": "status",
-        "timestamp_ms": int(datetime.utcnow().timestamp() * 1000),
+        "timestamp_ms": int(datetime.now(timezone.utc).timestamp() * 1000),
         "status": status,
         "message": message,
     })
@@ -213,7 +213,7 @@ async def store_and_broadcast_event(
 ):
     """Store an event in the database and broadcast to clients."""
     if timestamp_ms is None:
-        timestamp_ms = int(datetime.utcnow().timestamp() * 1000)
+        timestamp_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
     # Store in database
     async with async_session() as db:

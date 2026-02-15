@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -27,7 +27,7 @@ async def create_session(
 ):
     """Create a new recording session."""
     session_id = uuid.uuid4().hex
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     session = Session(
         id=session_id,
@@ -141,9 +141,9 @@ async def update_session(
 
     # Handle status transitions
     if updates.status == "recording" and not session.started_at:
-        session.started_at = datetime.utcnow()
+        session.started_at = datetime.now(timezone.utc)
     elif updates.status == "completed" and not session.ended_at:
-        session.ended_at = datetime.utcnow()
+        session.ended_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(session)
@@ -173,7 +173,7 @@ async def start_session(
         )
 
     session.status = "recording"
-    session.started_at = datetime.utcnow()
+    session.started_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(session)
@@ -203,7 +203,7 @@ async def stop_session(
         )
 
     session.status = "completed"
-    session.ended_at = datetime.utcnow()
+    session.ended_at = datetime.now(timezone.utc)
 
     await db.commit()
     await db.refresh(session)

@@ -1,7 +1,7 @@
 """Authentication routes - PIN-based family profiles."""
 import uuid
 import hashlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Tuple
 
 import bcrypt
@@ -66,14 +66,18 @@ def verify_pin(pin: str, pin_hash: str) -> Tuple[bool, bool]:
 
 def create_access_token(profile_id: str) -> str:
     """Create JWT access token."""
-    expire = datetime.utcnow() + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
+    expire = datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS)
     to_encode = {"sub": profile_id, "exp": expire}
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 
 
 @router.get("/profiles", response_model=List[ProfileResponse])
 async def list_profiles(db: AsyncSession = Depends(get_db)):
-    """List all family profiles (for profile selection screen)."""
+    """List profiles for selection screen.
+
+    Intentionally unauthenticated: needed before login.
+    Returns names and avatars only, no sensitive data.
+    """
     result = await db.execute(select(Profile).order_by(Profile.name))
     profiles = result.scalars().all()
     return profiles
