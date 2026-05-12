@@ -4,7 +4,7 @@ from __future__ import annotations
 import csv
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
 from typing import List
@@ -48,7 +48,7 @@ async def export_session(
     export_dir = settings.data_directory / "exports"
     export_dir.mkdir(exist_ok=True)
 
-    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     format_type = export_request.format
 
     if format_type == "full_json":

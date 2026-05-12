@@ -52,8 +52,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # REST API routes
@@ -82,10 +82,5 @@ async def root():
 
 @app.get("/api/health")
 async def health():
-    """Detailed health check."""
-    return {
-        "status": "healthy",
-        "database": "connected",
-        "gemini_configured": settings.gemini_api_key is not None,
-        "anthropic_configured": settings.anthropic_api_key is not None,
-    }
+    """Health check endpoint."""
+    return {"status": "healthy", "version": "2.0.0"}

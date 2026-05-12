@@ -9,7 +9,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:///./data/pool_telemetry.db
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - SECRET_KEY=${SECRET_KEY}
     volumes:
       - ./data:/app/data
     restart: unless-stopped

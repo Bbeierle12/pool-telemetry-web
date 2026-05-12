@@ -6,7 +6,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -16,13 +16,31 @@ class Settings(BaseSettings):
     # Application
     app_name: str = "Pool Telemetry"
     debug: bool = False
-    secret_key: str = Field(default="change-me-in-production")
+    secret_key: str = Field(..., description="Required. Generate with: openssl rand -hex 32")
 
-    # Database
+    # Database - Railway provides DATABASE_URL, we need to convert for async
     database_url: str = Field(default="sqlite+aiosqlite:///./data/pool_telemetry.db")
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def convert_postgres_url(cls, v: str) -> str:
+        """Convert PostgreSQL URL to async format for SQLAlchemy."""
+        if v and v.startswith("postgresql://"):
+            # Railway provides postgresql:// but SQLAlchemy async needs postgresql+asyncpg://
+            return v.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return v
 
     # CORS
     allowed_origins: List[str] = Field(default=["http://localhost:5173", "http://localhost:3000"])
+
+    @field_validator("allowed_origins", mode="before")
+    @classmethod
+    def parse_allowed_origins(cls, v):
+        """Parse allowed origins from string or list."""
+        if isinstance(v, str):
+            # Handle comma-separated string or single URL
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     # Storage
     data_directory: Path = Field(default=Path("./data"))
