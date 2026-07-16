@@ -9,6 +9,7 @@ import type {
   NetworkCameraConfig,
   ExportResponse,
   ExportFormat,
+  PrototypeAnalysisResult,
 } from '../types'
 
 // Default base URL - will be updated if running in Electron
@@ -210,6 +211,9 @@ export const analysisApi = {
 
   getBreakdown: (sessionId: string) =>
     api.get(`/analysis/${sessionId}/breakdown`).then((res) => res.data),
+
+  runPrototype: (sessionId: string, data: { replace_existing?: boolean; sample_fps?: number; max_frames?: number } = {}) =>
+    api.post<PrototypeAnalysisResult>(`/analysis/${sessionId}/prototype`, data).then((res) => res.data),
 }
 
 // Coaching API

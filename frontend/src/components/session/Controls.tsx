@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useSessionStore } from '../../store/sessionStore'
-import { sessionsApi } from '../../services/api'
+import { analysisApi, eventsApi, sessionsApi } from '../../services/api'
 import ExportDialog from '../dialogs/ExportDialog'
 
 export default function Controls() {
@@ -14,6 +14,8 @@ export default function Controls() {
     isPaused,
     setRecording,
     setPaused,
+    setCurrentSession,
+    setEvents,
     resetSession,
   } = useSessionStore()
 
@@ -54,13 +56,22 @@ export default function Controls() {
 
     setAnalyzing(true)
     try {
-      // Trigger analysis - could open a modal with results
-      const result = await fetch(`/api/coaching/${sessionId}/analyze`, {
-        method: 'POST',
-      }).then(r => r.json())
+      const result = await analysisApi.runPrototype(sessionId, { replace_existing: true })
+      const latestEvents = await eventsApi.getLatest(sessionId, 50)
 
-      // Show result in alert for now (could be a modal)
-      alert(result.analysis || result.fallback_feedback || 'Analysis complete')
+      setCurrentSession(result.session)
+      setEvents(latestEvents)
+
+      const summaryLines = [
+        `Shots: ${result.shots_detected}`,
+        `Pockets: ${result.pockets_detected}`,
+        `Fouls: ${result.fouls_detected}`,
+      ]
+      if (result.notes.length > 0) {
+        summaryLines.push('', 'Notes:', ...result.notes)
+      }
+
+      alert(`Prototype scoring complete\n\n${summaryLines.join('\n')}`)
     } catch (error) {
       console.error('Analysis failed:', error)
     } finally {
@@ -72,7 +83,7 @@ export default function Controls() {
   const canPause = isRecording
   const canStop = isRecording || isPaused
   const canExport = sessionId && currentSession?.status === 'completed'
-  const canAnalyze = sessionId && (currentSession?.total_shots ?? 0) > 0
+  const canAnalyze = sessionId && !!currentSession?.source_path
 
   return (
     <div className="group-box">
@@ -127,7 +138,7 @@ export default function Controls() {
           disabled={!canAnalyze || analyzing}
           className="btn-success"
         >
-          {analyzing ? 'Analyzing...' : 'Analyze'}
+          {analyzing ? 'Scoring...' : 'Score Video'}
         </button>
       </div>
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import axios from 'axios'
-import { authApi, sessionsApi, eventsApi, exportApi, coachingApi } from './api'
+import { authApi, sessionsApi, eventsApi, exportApi, coachingApi, analysisApi } from './api'
 
 // Mock axios
 vi.mock('axios', () => {
@@ -245,6 +245,24 @@ describe('API Services', () => {
 
       expect(mockedAxios.get).toHaveBeenCalledWith('/coaching/session-1/drills')
       expect(result).toEqual(mockDrills)
+    })
+  })
+
+  describe('analysisApi', () => {
+    it('runPrototype should call POST /analysis/{sessionId}/prototype', async () => {
+      const mockResult = { status: 'completed', shots_detected: 2 }
+      mockedAxios.post.mockResolvedValue({ data: mockResult })
+
+      const result = await analysisApi.runPrototype('session-1', {
+        replace_existing: true,
+        sample_fps: 8,
+      })
+
+      expect(mockedAxios.post).toHaveBeenCalledWith('/analysis/session-1/prototype', {
+        replace_existing: true,
+        sample_fps: 8,
+      })
+      expect(result).toEqual(mockResult)
     })
   })
 })

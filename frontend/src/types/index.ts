@@ -78,6 +78,19 @@ export interface Shot {
   confidence_overall: number | null
 }
 
+export interface PrototypeAnalysisResult {
+  session_id: string
+  status: string
+  analyzed_frames: number
+  sample_fps: number
+  shots_detected: number
+  pockets_detected: number
+  fouls_detected: number
+  duration_ms: number
+  notes: string[]
+  session: Session
+}
+
 // Video types
 export interface StreamInfo {
   session_id: string

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
+import { getWebSocketUrl } from '../services/api'
 import { useSessionStore } from '../store/sessionStore'
 import type { BallPosition, GameEvent, WSMessage } from '../types'
 
@@ -24,9 +25,7 @@ export function useWebSocket({ sessionId, onError }: UseWebSocketOptions) {
   const connect = useCallback(() => {
     if (!sessionId) return
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/ws/events/${sessionId}`
-
+    const wsUrl = getWebSocketUrl(`/ws/events/${sessionId}`)
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws
 
@@ -68,7 +67,7 @@ export function useWebSocket({ sessionId, onError }: UseWebSocketOptions) {
 
       case 'shot':
         incrementShots()
-        const shotData = message.shot as { balls_pocketed?: string[] }
+        const shotData = (message.shot ?? message.data) as { balls_pocketed?: string[]; shot_number?: number } | undefined
         if (shotData?.balls_pocketed?.length) {
           incrementPocketed(shotData.balls_pocketed.length)
         }
@@ -84,24 +83,34 @@ export function useWebSocket({ sessionId, onError }: UseWebSocketOptions) {
 
       case 'pocket':
         incrementPocketed()
+        const pocketData = (message.data ?? {}) as Record<string, unknown>
         addEvent({
           id: Date.now(),
           session_id: sessionId || '',
           timestamp_ms: message.timestamp_ms || Date.now(),
           event_type: 'POCKET',
-          event_data: { ball: message.ball, pocket: message.pocket },
+          event_data: {
+            ball: message.ball ?? pocketData.ball,
+            pocket: message.pocket ?? pocketData.pocket,
+          },
           received_at: new Date().toISOString(),
         })
         break
 
       case 'foul':
         incrementFouls()
+        const foulPayload = (message.data ?? {}) as Record<string, unknown>
+        const foulDetails = ((message.details ?? foulPayload.details ?? {}) as Record<string, unknown>)
+        const foulType = (message.foul_type ?? foulPayload.foul_type ?? 'Unknown foul') as string
         addEvent({
           id: Date.now(),
           session_id: sessionId || '',
           timestamp_ms: message.timestamp_ms || Date.now(),
           event_type: 'FOUL',
-          event_data: message.details as Record<string, unknown>,
+          event_data: {
+            foul_type: foulType,
+            ...foulDetails,
+          },
           received_at: new Date().toISOString(),
         })
         break

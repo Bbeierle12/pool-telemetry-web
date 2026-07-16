@@ -234,6 +234,29 @@ class GameEvent(BaseModel):
     data: Dict[str, Any]
 
 
+class PrototypeAnalysisRequest(BaseModel):
+    """Run the local prototype scorer against a session video."""
+
+    replace_existing: bool = True
+    sample_fps: Optional[int] = Field(default=None, ge=1, le=30)
+    max_frames: Optional[int] = Field(default=None, ge=10, le=20000)
+
+
+class PrototypeAnalysisResponse(BaseModel):
+    """Summary returned after prototype scoring completes."""
+
+    session_id: str
+    status: str
+    analyzed_frames: int
+    sample_fps: int
+    shots_detected: int
+    pockets_detected: int
+    fouls_detected: int
+    duration_ms: int
+    notes: List[str]
+    session: SessionResponse
+
+
 # ============= Settings Schemas =============
 
 class ApiKeysSettings(BaseModel):

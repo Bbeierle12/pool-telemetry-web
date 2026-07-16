@@ -27,6 +27,7 @@ interface SessionState {
   setSessionId: (id: string | null) => void
   setBalls: (balls: BallPosition[]) => void
   addEvent: (event: GameEvent) => void
+  setEvents: (events: GameEvent[]) => void
   clearEvents: () => void
   setRecording: (recording: boolean) => void
   setPaused: (paused: boolean) => void
@@ -64,6 +65,8 @@ export const useSessionStore = create<SessionState>((set) => ({
     set((state) => ({
       events: [...state.events.slice(-99), event], // Keep last 100 events
     })),
+
+  setEvents: (events) => set({ events: events.slice(-100) }),
 
   clearEvents: () => set({ events: [] }),
 

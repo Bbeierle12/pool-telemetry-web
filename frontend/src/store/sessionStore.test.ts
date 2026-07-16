@@ -121,6 +121,19 @@ describe('sessionStore', () => {
       const state = useSessionStore.getState()
       expect(state.events).toHaveLength(0)
     })
+
+    it('should replace events with setEvents', () => {
+      const { addEvent, setEvents } = useSessionStore.getState()
+      addEvent({ id: 1, type: 'old' } as any)
+      setEvents([
+        { id: 2, event_type: 'SHOT' },
+        { id: 3, event_type: 'POCKET' },
+      ] as any)
+
+      const state = useSessionStore.getState()
+      expect(state.events).toHaveLength(2)
+      expect((state.events[0] as any).id).toBe(2)
+    })
   })
 
   describe('recording state', () => {

@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash-exp"
     gemini_frame_interval_ms: int = 33
 
+    # Local prototype analysis
+    prototype_analysis_fps: int = 6
+    prototype_max_frames: int = 1800
+
     # Video settings
     default_resolution: str = "1080p"
     default_framerate: int = 30
