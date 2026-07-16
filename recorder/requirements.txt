@@ -1,0 +1,28 @@
+# Core GUI and Video
+PyQt6>=6.6.0
+opencv-python>=4.8.0
+
+# Ball Detection (YOLOv8)
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Ball Tracking
+filterpy>=1.4.5
+lap>=0.4.0
+
+# Physics Simulation
+pooltool-billiards>=0.5.0
+scipy>=1.10.0
+
+# Data Analysis
+numpy>=1.24.0
+pandas>=2.0.0
+
+# AI APIs
+anthropic>=0.25.0
+websocket-client>=1.6.0
+
+# Development
+pytest>=7.4.0
+pytest-qt>=4.2.0
